@@ -40,6 +40,9 @@ class Settings:
     score_weight_walk_meters: float = float(
         os.getenv("SCORE_WEIGHT_WALK_METERS", "0.001")
     )
+    default_min_transfer_minutes: int = int(
+        os.getenv("DEFAULT_MIN_TRANSFER_MINUTES", "3")
+    )
     enable_osrm: bool = os.getenv("ENABLE_OSRM", "false").lower() == "true"
     osrm_url: str = os.getenv("OSRM_URL", "http://localhost:5000")
     database_url_test: str = os.getenv(

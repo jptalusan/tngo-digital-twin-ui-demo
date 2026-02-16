@@ -7,6 +7,7 @@ def test_insertion_selects_feasible_vehicle():
         ondemand_service.VehicleState(vehicle_id="veh-2", capacity=4, route=[]),
     ]
     request = ondemand_service.Request(
+        request_id="req-1",
         origin_lat=35.0,
         origin_lon=-90.0,
         destination_lat=35.01,
@@ -25,6 +26,7 @@ def test_insertion_selects_feasible_vehicle():
 def test_insertion_respects_time_windows():
     vehicles = [ondemand_service.VehicleState(vehicle_id="veh-1", capacity=4, route=[])]
     request = ondemand_service.Request(
+        request_id="req-2",
         origin_lat=35.0,
         origin_lon=-90.0,
         destination_lat=36.0,

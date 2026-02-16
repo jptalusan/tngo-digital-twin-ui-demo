@@ -12,7 +12,8 @@ sys.path.append(str(Path(__file__).resolve().parents[1]))
 os.environ["USE_TEST_DB"] = "true"
 
 from app.core.config import settings
-from app.db import init_db, SessionLocal
+from app.db import init_db, SessionLocal, engine
+from app.models.base import Base
 from app.main import app
 
 
@@ -34,6 +35,7 @@ def _ensure_test_database():
 @pytest.fixture(scope="session", autouse=True)
 def _ensure_test_db():
     _ensure_test_database()
+    Base.metadata.drop_all(bind=engine)
     init_db()
     yield
 
@@ -75,3 +77,8 @@ def client():
 @pytest.fixture()
 def gtfs_fixture_path():
     return Path(__file__).resolve().parent / "fixtures" / "gtfs"
+
+
+@pytest.fixture()
+def gtfs_transfer_fixture_path():
+    return Path(__file__).resolve().parent / "fixtures" / "gtfs_transfer"

@@ -9,6 +9,7 @@ from typing import Iterable
 import sys
 
 from sqlalchemy.orm import Session
+from sqlalchemy import text
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
@@ -30,6 +31,8 @@ def _iter_rows(path: Path, filename: str) -> Iterable[dict]:
     file_path = path / filename
     if path.is_file() and zipfile.is_zipfile(path):
         with zipfile.ZipFile(path) as zf:
+            if filename not in zf.namelist():
+                return
             with zf.open(filename) as f:
                 text = io.TextIOWrapper(f, encoding="utf-8-sig")
                 yield from csv.DictReader(text)
@@ -46,20 +49,38 @@ def _bulk_insert(session: Session, rows: list) -> None:
         session.flush()
 
 
-def load_gtfs(path: Path) -> None:
+def load_gtfs(path: Path, truncate: bool = False) -> None:
     session = SessionLocal()
     try:
-        agencies = [
-            Agency(
-                agency_id=row.get("agency_id") or "default",
+        if truncate:
+            for table in [
+                "stop_time",
+                "trip",
+                "route",
+                "stop",
+                "calendar",
+                "calendar_date",
+                "shape_point",
+                "shape",
+                "agency",
+            ]:
+                session.execute(text(f"TRUNCATE TABLE {table} RESTART IDENTITY CASCADE"))
+            session.commit()
+
+        agencies_by_id = {}
+        for row in _iter_rows(path, "agency.txt"):
+            agency_id = row.get("agency_id") or "default"
+            if agency_id in agencies_by_id:
+                continue
+            agencies_by_id[agency_id] = Agency(
+                agency_id=agency_id,
                 name=row.get("agency_name") or "",
                 url=row.get("agency_url"),
                 timezone=row.get("agency_timezone"),
                 lang=row.get("agency_lang"),
                 phone=row.get("agency_phone"),
             )
-            for row in _iter_rows(path, "agency.txt")
-        ]
+        agencies = list(agencies_by_id.values())
         routes = [
             Route(
                 route_id=row.get("route_id") or "",
@@ -162,9 +183,10 @@ def load_gtfs(path: Path) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--path", required=True, help="Path to GTFS directory or zip")
+    parser.add_argument("--truncate", action="store_true", help="Truncate GTFS tables before load")
     args = parser.parse_args()
 
-    load_gtfs(Path(args.path))
+    load_gtfs(Path(args.path), truncate=args.truncate)
     print("GTFS loaded")
 
 

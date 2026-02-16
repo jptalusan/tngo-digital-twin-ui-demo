@@ -50,6 +50,7 @@ def test_build_fixed_line_itineraries_scoring(gtfs_fixture_path):
             score_weight_total_minutes=1.0,
             score_weight_wait_minutes=0.5,
             score_weight_walk_meters=0.001,
+            min_transfer_minutes=3,
         )
         inputs = planning_service.FixedLineInputs(
             origin_lat=35.1495,
@@ -57,6 +58,8 @@ def test_build_fixed_line_itineraries_scoring(gtfs_fixture_path):
             destination_lat=35.1505,
             destination_lon=-90.0480,
             depart_at_min=480,
+            transfer_limit=0,
+            active_service_ids=None,
             constraints=constraints,
         )
         itineraries = planning_service.build_fixed_line_itineraries(session, inputs)

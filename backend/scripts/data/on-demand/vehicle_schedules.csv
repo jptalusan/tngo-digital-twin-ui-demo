@@ -1,0 +1,2 @@
+vehicle_id,service_days,start_time,end_time
+veh-001,"mon,tue,wed,thu,fri,sat,sun",05:00,20:00

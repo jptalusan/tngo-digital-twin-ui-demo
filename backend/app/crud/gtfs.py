@@ -73,6 +73,26 @@ def load_stop_times_for_stops(session: Session, stop_ids: set[str]) -> list[Stop
     )
 
 
+def load_stop_times_for_trips(session: Session, trip_ids: set[str]) -> list[StopTime]:
+    if not trip_ids:
+        return []
+    return (
+        session.execute(select(StopTime).where(StopTime.trip_id.in_(trip_ids)))
+        .scalars()
+        .all()
+    )
+
+
+def load_trips_for_service_ids(session: Session, service_ids: set[str]) -> list[Trip]:
+    if not service_ids:
+        return []
+    return (
+        session.execute(select(Trip).where(Trip.service_id.in_(service_ids)))
+        .scalars()
+        .all()
+    )
+
+
 def load_trips_for_ids(session: Session, trip_ids: set[str]) -> list[Trip]:
     if not trip_ids:
         return []

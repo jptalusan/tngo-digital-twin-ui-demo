@@ -1,0 +1,2 @@
+depot_id,name,lat,lon,service_zone_wkt
+depot-001,Memphis Downtown Depot,35.1495,-90.0490,"POLYGON((-90.065 35.135, -90.065 35.165, -90.033 35.165, -90.033 35.135, -90.065 35.135))"

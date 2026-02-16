@@ -1,0 +1,2 @@
+vehicle_id,depot_id,capacity,status
+veh-001,depot-001,1,available

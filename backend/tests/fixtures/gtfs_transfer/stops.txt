@@ -1,0 +1,4 @@
+stop_id,stop_name,stop_lat,stop_lon
+S1,Origin Stop,35.1495,-90.0490
+SX,Transfer Stop,35.1500,-90.0495
+S2,Destination Stop,35.1505,-90.0480

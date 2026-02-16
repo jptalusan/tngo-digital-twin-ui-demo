@@ -7,6 +7,9 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from datetime import datetime
+from zoneinfo import ZoneInfo
+from fastapi import HTTPException
 from app.db import get_session
 from app.schemas import planning as schemas
 from app.services import planning as planning_service
@@ -160,6 +163,25 @@ def plan_fixed_line(
     payload: schemas.FixedLineRequest,
     session: Session = Depends(get_session),
 ) -> schemas.FixedLineResponse:
+    agency_timezone = gtfs_crud.get_agency_timezone(session)
+    if payload.agency_timezone and agency_timezone and payload.agency_timezone != agency_timezone:
+        raise HTTPException(
+            status_code=400,
+            detail=f"agency_timezone mismatch. GTFS={agency_timezone}, request={payload.agency_timezone}",
+        )
+
+    service_date = payload.service_date
+    if service_date is None and agency_timezone:
+        try:
+            now = datetime.now(ZoneInfo(agency_timezone))
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        service_date = now.strftime("%Y%m%d")
+
+    active_service_ids = (
+        gtfs_crud.get_active_service_ids(session, service_date) if service_date else None
+    )
+
     constraints = planning_service.FixedLineConstraints(
         max_walk_meters=payload.max_walk_meters,
         max_wait_minutes=payload.max_wait_minutes or settings.default_max_wait_minutes,
@@ -172,6 +194,7 @@ def plan_fixed_line(
         or settings.score_weight_wait_minutes,
         score_weight_walk_meters=payload.score_weight_walk_meters
         or settings.score_weight_walk_meters,
+        min_transfer_minutes=settings.default_min_transfer_minutes,
     )
     inputs = planning_service.FixedLineInputs(
         origin_lat=payload.origin[0],
@@ -179,6 +202,8 @@ def plan_fixed_line(
         destination_lat=payload.destination[0],
         destination_lon=payload.destination[1],
         depart_at_min=payload.depart_at_min or 0,
+        transfer_limit=payload.transfer_limit or settings.default_transfer_limit,
+        active_service_ids=active_service_ids,
         constraints=constraints,
     )
 
