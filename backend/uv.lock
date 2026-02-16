@@ -592,6 +592,7 @@ source = { virtual = "." }
 dependencies = [
     { name = "fastapi" },
     { name = "geoalchemy2" },
+    { name = "httpx" },
     { name = "psycopg", extra = ["binary"] },
     { name = "pydantic" },
     { name = "python-dotenv" },
@@ -609,6 +610,7 @@ dev = [
 requires-dist = [
     { name = "fastapi", specifier = ">=0.111.0" },
     { name = "geoalchemy2", specifier = ">=0.15.2" },
+    { name = "httpx", specifier = ">=0.27.0" },
     { name = "httpx", marker = "extra == 'dev'", specifier = ">=0.27.0" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.1.19" },
     { name = "pydantic", specifier = ">=2.7.0" },

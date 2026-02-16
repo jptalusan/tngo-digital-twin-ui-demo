@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable, Optional
+from typing import Optional
+
+import httpx
 
 from app.core.config import settings
 from app.services.planning import get_distance_m
@@ -52,14 +54,59 @@ class InsertionResult:
     note: str
 
 
+def compute_route_distance_m(route: list[StopEvent]) -> float:
+    if len(route) < 2:
+        return 0.0
+    total = 0.0
+    for prev, curr in zip(route[:-1], route[1:]):
+        total += _travel_distance_m(prev.lat, prev.lon, curr.lat, curr.lon)
+    return total
+
+
 def _default_speed_kmph() -> float:
     return float(getattr(settings, "default_on_demand_speed_kmph", 30.0))
 
 
+def _osrm_table(lat1: float, lon1: float, lat2: float, lon2: float) -> tuple[Optional[float], Optional[float]]:
+    if not settings.enable_osrm:
+        return None, None
+    url = f"{settings.osrm_url}/table/v1/driving/{lon1},{lat1};{lon2},{lat2}"
+    params = {"annotations": "duration,distance"}
+    try:
+        with httpx.Client(timeout=5.0) as client:
+            resp = client.get(url, params=params)
+            resp.raise_for_status()
+            data = resp.json()
+    except Exception:
+        return None, None
+
+    durations = data.get("durations") or []
+    distances = data.get("distances") or []
+    duration_s = None
+    distance_m = None
+    if len(durations) > 0 and len(durations[0]) > 1:
+        value = durations[0][1]
+        duration_s = None if value is None else float(value)
+    if len(distances) > 0 and len(distances[0]) > 1:
+        value = distances[0][1]
+        distance_m = None if value is None else float(value)
+    return duration_s, distance_m
+
+
 def _travel_time_min(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    duration_s, _ = _osrm_table(lat1, lon1, lat2, lon2)
+    if duration_s is not None:
+        return duration_s / 60
     distance_m = get_distance_m(lat1, lon1, lat2, lon2)
     speed_mps = (_default_speed_kmph() * 1000) / 3600
     return distance_m / max(speed_mps, 0.1) / 60
+
+
+def _travel_distance_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    _, distance_m = _osrm_table(lat1, lon1, lat2, lon2)
+    if distance_m is not None:
+        return distance_m
+    return get_distance_m(lat1, lon1, lat2, lon2)
 
 
 def _simulate_route(
@@ -130,8 +177,11 @@ def find_best_insertion(
             if times is None:
                 continue
             eta_minutes = max(0, times[0] - start_min)
-            distance_m = get_distance_m(
-                request.origin_lat, request.origin_lon, request.destination_lat, request.destination_lon
+            distance_m = _travel_distance_m(
+                request.origin_lat,
+                request.origin_lon,
+                request.destination_lat,
+                request.destination_lon,
             )
             result = InsertionResult(
                 vehicle_id=vehicle.vehicle_id,
@@ -151,8 +201,11 @@ def find_best_insertion(
                 if times is None:
                     continue
                 eta_minutes = max(0, times[0] - start_min)
-                distance_m = get_distance_m(
-                    request.origin_lat, request.origin_lon, request.destination_lat, request.destination_lon
+                distance_m = _travel_distance_m(
+                    request.origin_lat,
+                    request.origin_lon,
+                    request.destination_lat,
+                    request.destination_lon,
                 )
                 result = InsertionResult(
                     vehicle_id=vehicle.vehicle_id,

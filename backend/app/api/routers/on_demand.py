@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.db import get_session
 from app.schemas import planning as schemas
 from app.services import ondemand as ondemand_service
 from app.crud import ondemand as ondemand_crud
+from app.core.config import settings
 
 router = APIRouter(tags=["on-demand"])
 
@@ -43,11 +44,28 @@ def plan_on_demand(
     vehicles = ondemand_crud.load_vehicle_states(session, request.origin_lat, request.origin_lon)
     result = ondemand_service.find_best_insertion(vehicles, request, start_min=pickup_start)
 
+    weight_total = payload.score_weight_total_minutes or settings.score_weight_total_minutes
+    weight_wait = payload.score_weight_wait_minutes or settings.score_weight_wait_minutes
+    weight_walk = payload.score_weight_walk_meters or settings.score_weight_walk_meters
+
     if result is None:
+        score = schemas.ScoreBreakdown(
+            total_minutes=0.0,
+            wait_minutes=0.0,
+            walk_meters=0.0,
+            weight_total_minutes=weight_total,
+            weight_wait_minutes=weight_wait,
+            weight_walk_meters=weight_walk,
+            score=0.0,
+        )
         return schemas.OnDemandResponse(
             vehicle_id="",
             eta_minutes=0,
             distance_km=0.0,
+            total_duration_s=0,
+            total_wait_s=0,
+            total_invehicle_s=0,
+            score=score,
             note="No feasible vehicle found for the requested windows.",
         )
 
@@ -59,9 +77,186 @@ def plan_on_demand(
         result.planned_times,
     )
 
+    pickup_time = None
+    dropoff_time = None
+    for stop, planned_min in zip(result.route, result.planned_times):
+        if stop.request_id != request_id:
+            continue
+        if stop.stop_type == "pickup":
+            pickup_time = planned_min
+        elif stop.stop_type == "dropoff":
+            dropoff_time = planned_min
+
+    if pickup_time is None:
+        pickup_time = pickup_start
+    if dropoff_time is None:
+        dropoff_time = pickup_time
+
+    total_wait_s = max(0, pickup_time - pickup_start) * 60
+    total_invehicle_s = max(0, dropoff_time - pickup_time) * 60
+    total_duration_s = max(0, dropoff_time - pickup_start) * 60
+
+    score = schemas.ScoreBreakdown(
+        total_minutes=round(total_duration_s / 60, 4),
+        wait_minutes=round(total_wait_s / 60, 4),
+        walk_meters=0.0,
+        weight_total_minutes=weight_total,
+        weight_wait_minutes=weight_wait,
+        weight_walk_meters=weight_walk,
+        score=round(
+            (total_duration_s / 60) * weight_total
+            + (total_wait_s / 60) * weight_wait
+            + 0.0 * weight_walk,
+            4,
+        ),
+    )
+
     return schemas.OnDemandResponse(
         vehicle_id=result.vehicle_id,
         eta_minutes=result.eta_minutes,
         distance_km=result.distance_km,
+        total_duration_s=total_duration_s,
+        total_wait_s=total_wait_s,
+        total_invehicle_s=total_invehicle_s,
+        score=score,
         note=result.note,
+    )
+
+
+@router.post(
+    "/on-demand/evaluate",
+    response_model=schemas.OnDemandEvaluateResponse,
+    summary="Evaluate on-demand vehicle schedule",
+    description="Evaluate the active on-demand schedule for a vehicle and return aggregate metrics.",
+)
+def evaluate_on_demand(
+    payload: schemas.OnDemandEvaluateRequest,
+    session: Session = Depends(get_session),
+) -> schemas.OnDemandEvaluateResponse:
+    stops = ondemand_crud.load_active_route_with_times(session, payload.vehicle_id)
+    if not stops:
+        raise HTTPException(status_code=404, detail="No active route found for vehicle.")
+
+    if any(stop.planned_arrival_min is None for stop in stops):
+        raise HTTPException(
+            status_code=400,
+            detail="Active route has no planned times. Insert at least one request first.",
+        )
+
+    pickup_by_request = {}
+    dropoff_by_request = {}
+    route_events = []
+    for stop in stops:
+        if stop.lat is not None and stop.lon is not None:
+            route_events.append(
+                ondemand_service.StopEvent(
+                    lat=stop.lat,
+                    lon=stop.lon,
+                    window=ondemand_service.TimeWindow(0, 0),
+                    delta_load=0,
+                )
+            )
+        if stop.request_id:
+            if stop.stop_type == "pickup":
+                pickup_by_request[stop.request_id] = stop
+            elif stop.stop_type == "dropoff":
+                dropoff_by_request[stop.request_id] = stop
+
+    total_distance_m = ondemand_service.compute_route_distance_m(route_events)
+
+    total_wait_s = 0
+    total_invehicle_s = 0
+    for request_id, pickup in pickup_by_request.items():
+        dropoff = dropoff_by_request.get(request_id)
+        if dropoff is None:
+            continue
+        wait_min = max(0, pickup.planned_arrival_min - (pickup.window_start_min or 0))
+        in_vehicle_min = max(0, dropoff.planned_arrival_min - pickup.planned_arrival_min)
+        total_wait_s += wait_min * 60
+        total_invehicle_s += in_vehicle_min * 60
+
+    first_time = stops[0].planned_arrival_min or 0
+    last_time = stops[-1].planned_arrival_min or first_time
+    total_duration_s = max(0, last_time - first_time) * 60
+
+    weight_total = payload.score_weight_total_minutes or settings.score_weight_total_minutes
+    weight_wait = payload.score_weight_wait_minutes or settings.score_weight_wait_minutes
+    weight_walk = payload.score_weight_walk_meters or settings.score_weight_walk_meters
+
+    score = schemas.ScoreBreakdown(
+        total_minutes=round(total_duration_s / 60, 4),
+        wait_minutes=round(total_wait_s / 60, 4),
+        walk_meters=0.0,
+        weight_total_minutes=weight_total,
+        weight_wait_minutes=weight_wait,
+        weight_walk_meters=weight_walk,
+        score=round(
+            (total_duration_s / 60) * weight_total + (total_wait_s / 60) * weight_wait,
+            4,
+        ),
+    )
+
+    return schemas.OnDemandEvaluateResponse(
+        vehicle_id=payload.vehicle_id,
+        stop_count=len(stops),
+        total_duration_s=total_duration_s,
+        total_wait_s=total_wait_s,
+        total_invehicle_s=total_invehicle_s,
+        total_distance_m=round(total_distance_m, 2),
+        score=score,
+        note="Active route evaluation.",
+    )
+
+
+@router.post(
+    "/on-demand/fulfillment",
+    response_model=schemas.OnDemandFulfillmentResponse,
+    summary="Summarize on-demand fulfillment",
+    description="Return fulfilled vs unfulfilled assigned requests for a vehicle.",
+)
+def fulfillment_on_demand(
+    payload: schemas.OnDemandFulfillmentRequest,
+    session: Session = Depends(get_session),
+) -> schemas.OnDemandFulfillmentResponse:
+    total_assigned, fulfilled, unfulfilled = ondemand_crud.summarize_fulfillment(
+        session, payload.vehicle_id
+    )
+    return schemas.OnDemandFulfillmentResponse(
+        vehicle_id=payload.vehicle_id,
+        total_assigned=total_assigned,
+        fulfilled=fulfilled,
+        unfulfilled=unfulfilled,
+        note="Fulfillment computed from assigned trips and route stops.",
+    )
+
+
+@router.get(
+    "/on-demand/summary",
+    response_model=schemas.OnDemandSummaryResponse,
+    summary="Summarize all on-demand requests",
+    description="Return totals and percentages for all on-demand requests.",
+)
+def summary_on_demand(
+    session: Session = Depends(get_session),
+) -> schemas.OnDemandSummaryResponse:
+    (
+        total_count,
+        assigned_count,
+        unassigned_count,
+        fulfilled_count,
+        unfulfilled_count,
+    ) = ondemand_crud.summarize_all_requests(session)
+
+    assigned_pct = round((assigned_count / total_count) * 100, 2) if total_count else 0.0
+    fulfilled_pct = round((fulfilled_count / total_count) * 100, 2) if total_count else 0.0
+
+    return schemas.OnDemandSummaryResponse(
+        total_requests=total_count,
+        assigned_requests=assigned_count,
+        unassigned_requests=unassigned_count,
+        fulfilled_requests=fulfilled_count,
+        unfulfilled_requests=unfulfilled_count,
+        assigned_pct=assigned_pct,
+        fulfilled_pct=fulfilled_pct,
+        note="Summary computed from on-demand requests, trips, and route stops.",
     )

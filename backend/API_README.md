@@ -55,19 +55,70 @@ curl -X POST http://localhost:8000/api/plan/fixed-line \
   }'
 ```
 
-## On-demand (single request)
+## On-demand (insertion updates vehicle schedule)
+Call twice to see the active route update with the new request insertion.
 
 ```bash
 curl -X POST http://localhost:8000/api/plan/on-demand \
   -H "Content-Type: application/json" \
   -d '{
     "origin": [35.1495, -90.0490],
-    "destination": [35.1505, -90.0480],
-    "passengers": 1,
+    "destination": [35.1550, -90.0600],
     "pickup_window_start_min": 480,
     "pickup_window_end_min": 520,
-    "dropoff_window_end_min": 600
+    "dropoff_window_end_min": 600,
+    "passengers": 1
   }'
+```
+
+```bash
+curl -X POST http://localhost:8000/api/plan/on-demand \
+  -H "Content-Type: application/json" \
+  -d '{
+    "origin": [35.1520, -90.0550],
+    "destination": [35.1600, -90.0700],
+    "pickup_window_start_min": 340,
+    "pickup_window_end_min": 540,
+    "dropoff_window_end_min": 760,
+    "passengers": 1
+  }'
+```
+
+### For west memphis (continuation)
+```bash
+curl -X POST http://localhost:8000/api/plan/on-demand \
+  -H "Content-Type: application/json" \
+  -d '{
+    "origin": [35.05824679207186, -90.07969506176909],
+    "destination": [35.05824679207186, -90.07969506176909],
+    "pickup_window_start_min": 340,
+    "pickup_window_end_min": 540,
+    "dropoff_window_end_min": 760,
+    "passengers": 1
+  }'
+```
+
+## On-demand schedule evaluation
+```bash
+curl -X POST http://localhost:8000/api/on-demand/evaluate \
+  -H "Content-Type: application/json" \
+  -d '{
+    "vehicle_id": "veh-001"
+  }'
+```
+
+## On-demand fulfillment summary
+```bash
+curl -X POST http://localhost:8000/api/on-demand/fulfillment \
+  -H "Content-Type: application/json" \
+  -d '{
+    "vehicle_id": "veh-001"
+  }'
+```
+
+## On-demand summary (all requests)
+```bash
+curl http://localhost:8000/api/on-demand/summary
 ```
 
 ## Multimodal (compare fixed-line, on-demand, multimodal)
@@ -151,4 +202,3 @@ curl -X POST http://localhost:8000/api/plan/fixed-line \
     "boc_request": false
   }'
 ```
-

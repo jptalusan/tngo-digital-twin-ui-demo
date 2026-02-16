@@ -15,8 +15,6 @@ from app.services import ondemand as ondemand_service
 from app.crud import ondemand as ondemand_crud
 from app.crud import gtfs as gtfs_crud
 from app.models.gtfs import Stop
-from app.services import hubs
-from app.crud import gtfs as gtfs_crud
 from app.logging.config import get_logger
 
 logger = get_logger("multimodal")
@@ -82,42 +80,8 @@ def _build_fixed_line(
     if depart_at_min is None and payload.arrive_by_min is not None:
         depart_at_min = max(0, payload.arrive_by_min - constraints.max_total_minutes)
 
-    extra_access = set()
-    extra_egress = set()
-    if hubs.is_in_memphis(payload.origin[0], payload.origin[1]):
-        extra_access |= gtfs_crud.find_stop_ids_by_prefix_near(
-            session,
-            hubs.MATA_PREFIX,
-            payload.origin[0],
-            payload.origin[1],
-            settings.memphis_hub_search_m,
-            limit=settings.memphis_hub_limit,
-        )
-    if hubs.is_in_boc(payload.destination[0], payload.destination[1]):
-        boc_egress = gtfs_crud.find_stop_ids_by_prefix_near(
-            session,
-            hubs.BOC_PREFIX,
-            payload.destination[0],
-            payload.destination[1],
-            settings.boc_hub_search_m,
-            limit=settings.boc_egress_hub_limit,
-        )
-        extra_egress |= boc_egress
-        boc_access = gtfs_crud.find_stop_ids_by_prefix_near(
-            session,
-            hubs.BOC_PREFIX,
-            payload.origin[0],
-            payload.origin[1],
-            settings.boc_hub_search_m,
-            limit=settings.boc_access_hub_limit,
-        )
-        extra_access |= {stop_id for stop_id in boc_access if stop_id not in extra_egress}
-
-    if extra_access or extra_egress:
-        logger.info(
-            "injected hubs %s",
-            {"access": sorted(extra_access), "egress": sorted(extra_egress)},
-        )
+    extra_access: set[str] = set()
+    extra_egress: set[str] = set()
 
     inputs = planning_service.FixedLineInputs(
         origin_lat=payload.origin[0],

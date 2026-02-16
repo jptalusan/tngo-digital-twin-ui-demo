@@ -166,6 +166,102 @@ def _load_active_route(session: Session, vehicle_id: str) -> list[ondemand_servi
     ]
 
 
+def load_active_route_with_times(
+    session: Session, vehicle_id: str
+) -> list[VehicleRouteStop]:
+    route = (
+        session.execute(
+            select(VehicleRoute)
+            .where(VehicleRoute.vehicle_id == vehicle_id, VehicleRoute.status == "active")
+            .order_by(VehicleRoute.updated_at.desc().nullslast())
+        )
+        .scalars()
+        .first()
+    )
+    if route is None:
+        return []
+
+    return (
+        session.execute(
+            select(VehicleRouteStop)
+            .where(VehicleRouteStop.route_id == route.route_id)
+            .order_by(VehicleRouteStop.sequence)
+        )
+        .scalars()
+        .all()
+    )
+
+
+def summarize_fulfillment(session: Session, vehicle_id: str) -> tuple[int, int, int]:
+    assigned_ids = (
+        session.execute(
+            select(OnDemandTrip.request_id).where(OnDemandTrip.vehicle_id == vehicle_id)
+        )
+        .scalars()
+        .all()
+    )
+    assigned_set = {req_id for req_id in assigned_ids if req_id}
+    if not assigned_set:
+        return 0, 0, 0
+
+    stops = (
+        session.execute(
+            select(VehicleRouteStop)
+            .where(VehicleRouteStop.request_id.in_(assigned_set))
+        )
+        .scalars()
+        .all()
+    )
+
+    pickup_seen: set[str] = set()
+    dropoff_seen: set[str] = set()
+    for stop in stops:
+        if not stop.request_id:
+            continue
+        if stop.stop_type == "pickup":
+            pickup_seen.add(stop.request_id)
+        elif stop.stop_type == "dropoff":
+            dropoff_seen.add(stop.request_id)
+
+    fulfilled = len(pickup_seen & dropoff_seen)
+    total_assigned = len(assigned_set)
+    unfulfilled = max(0, total_assigned - fulfilled)
+    return total_assigned, fulfilled, unfulfilled
+
+
+def summarize_all_requests(session: Session) -> tuple[int, int, int, int, int]:
+    total_requests = session.execute(select(OnDemandRequest.request_id)).scalars().all()
+    total_set = {req_id for req_id in total_requests if req_id}
+    total_count = len(total_set)
+
+    assigned_ids = session.execute(select(OnDemandTrip.request_id)).scalars().all()
+    assigned_set = {req_id for req_id in assigned_ids if req_id}
+    assigned_count = len(assigned_set)
+
+    stops = (
+        session.execute(
+            select(VehicleRouteStop).where(VehicleRouteStop.request_id.in_(assigned_set))
+        )
+        .scalars()
+        .all()
+    )
+
+    pickup_seen: set[str] = set()
+    dropoff_seen: set[str] = set()
+    for stop in stops:
+        if not stop.request_id:
+            continue
+        if stop.stop_type == "pickup":
+            pickup_seen.add(stop.request_id)
+        elif stop.stop_type == "dropoff":
+            dropoff_seen.add(stop.request_id)
+
+    fulfilled = len(pickup_seen & dropoff_seen)
+    unassigned = max(0, total_count - assigned_count)
+    unfulfilled = max(0, assigned_count - fulfilled)
+    return total_count, assigned_count, unassigned, fulfilled, unfulfilled
+
+
 def _get_or_create_route(session: Session, vehicle_id: str) -> VehicleRoute:
     route = (
         session.execute(

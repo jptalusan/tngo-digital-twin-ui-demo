@@ -182,6 +182,9 @@ class OnDemandRequest(BaseModel):
     pickup_window_start_min: Optional[int] = None
     pickup_window_end_min: Optional[int] = None
     dropoff_window_end_min: Optional[int] = None
+    score_weight_total_minutes: Optional[float] = None
+    score_weight_wait_minutes: Optional[float] = None
+    score_weight_walk_meters: Optional[float] = None
 
 
 class OnDemandResponse(BaseModel):
@@ -189,4 +192,54 @@ class OnDemandResponse(BaseModel):
     vehicle_id: str
     eta_minutes: int
     distance_km: float
+    total_duration_s: int
+    total_wait_s: int
+    total_invehicle_s: int
+    score: ScoreBreakdown
+    note: str
+
+
+class OnDemandEvaluateRequest(BaseModel):
+    """Request to evaluate a vehicle's active on-demand schedule."""
+    vehicle_id: str = Field(description="Vehicle identifier to evaluate.")
+    score_weight_total_minutes: Optional[float] = None
+    score_weight_wait_minutes: Optional[float] = None
+    score_weight_walk_meters: Optional[float] = None
+
+
+class OnDemandEvaluateResponse(BaseModel):
+    """Evaluation metrics for an on-demand vehicle schedule."""
+    vehicle_id: str
+    stop_count: int
+    total_duration_s: int
+    total_wait_s: int
+    total_invehicle_s: int
+    total_distance_m: float
+    score: ScoreBreakdown
+    note: str
+
+
+class OnDemandFulfillmentRequest(BaseModel):
+    """Request to summarize fulfilled vs unfulfilled on-demand requests for a vehicle."""
+    vehicle_id: str = Field(description="Vehicle identifier to summarize.")
+
+
+class OnDemandFulfillmentResponse(BaseModel):
+    """Fulfillment summary for on-demand requests assigned to a vehicle."""
+    vehicle_id: str
+    total_assigned: int
+    fulfilled: int
+    unfulfilled: int
+    note: str
+
+
+class OnDemandSummaryResponse(BaseModel):
+    """Summary of all on-demand requests."""
+    total_requests: int
+    assigned_requests: int
+    unassigned_requests: int
+    fulfilled_requests: int
+    unfulfilled_requests: int
+    assigned_pct: float
+    fulfilled_pct: float
     note: str

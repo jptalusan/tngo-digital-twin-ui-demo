@@ -43,11 +43,7 @@ class Settings:
     default_min_transfer_minutes: int = int(
         os.getenv("DEFAULT_MIN_TRANSFER_MINUTES", "3")
     )
-    memphis_hub_search_m: int = int(os.getenv("MEMPHIS_HUB_SEARCH_M", "4000"))
     boc_hub_search_m: int = int(os.getenv("BOC_HUB_SEARCH_M", "8000"))
-    memphis_hub_limit: int = int(os.getenv("MEMPHIS_HUB_LIMIT", "10"))
-    boc_egress_hub_limit: int = int(os.getenv("BOC_EGRESS_HUB_LIMIT", "5"))
-    boc_access_hub_limit: int = int(os.getenv("BOC_ACCESS_HUB_LIMIT", "5"))
     transfer_walk_radius_m: int = int(os.getenv("TRANSFER_WALK_RADIUS_M", "300"))
     enable_osrm: bool = os.getenv("ENABLE_OSRM", "false").lower() == "true"
     osrm_url: str = os.getenv("OSRM_URL", "http://localhost:5000")
