@@ -7,7 +7,8 @@ from app.db import init_db
 
 
 def main() -> None:
-    init_db()
+    drop = "--drop" in sys.argv
+    init_db(drop=drop)
     print("Database initialized")
 
 

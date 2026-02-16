@@ -15,6 +15,12 @@ uv sync
 uv run python scripts/init_db.py
 ```
 
+To drop and recreate all tables:
+
+```bash
+uv run python scripts/init_db.py --drop
+```
+
 4. Start the API:
 
 ```bash
@@ -40,4 +46,3 @@ uv run python scripts/load_gtfs.py --path /path/to/gtfs.zip
 ```bash
 uv run python scripts/load_ondemand.py
 ```
-

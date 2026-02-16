@@ -2,25 +2,24 @@ from __future__ import annotations
 
 import math
 import random
-import uuid
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
-from app.core.config import settings
-from datetime import datetime
-from zoneinfo import ZoneInfo
-from fastapi import HTTPException
 from app.db import get_session
 from app.schemas import planning as schemas
 from app.services import planning as planning_service
-from app.services import ondemand as ondemand_service
 from app.crud import ondemand as ondemand_crud
 from app.crud import gtfs as gtfs_crud
 
 router = APIRouter(tags=["planning"])
 
 
-@router.get("/autocomplete", response_model=list[schemas.AutocompleteResult])
+@router.get(
+    "/autocomplete",
+    response_model=list[schemas.AutocompleteResult],
+    summary="Autocomplete stops/depots",
+    description="Search stop and depot names for autocomplete suggestions.",
+)
 def autocomplete(
     query: str = Query(min_length=1),
     session: Session = Depends(get_session),
@@ -51,7 +50,12 @@ def autocomplete(
     return results[:10]
 
 
-@router.post("/reverse-geocode", response_model=schemas.ReverseGeocodeResponse)
+@router.post(
+    "/reverse-geocode",
+    response_model=schemas.ReverseGeocodeResponse,
+    summary="Reverse geocode",
+    description="Mock reverse geocoding for a coordinate.",
+)
 def reverse_geocode(payload: schemas.ReverseGeocodeRequest) -> schemas.ReverseGeocodeResponse:
     lat, lon = payload.coordinates
     street_number = random.randint(1000, 9999)
@@ -68,7 +72,12 @@ def reverse_geocode(payload: schemas.ReverseGeocodeRequest) -> schemas.ReverseGe
     return schemas.ReverseGeocodeResponse(name=name, address=f"{name}, Memphis, TN")
 
 
-@router.post("/navigate", response_model=schemas.NavigateResponse)
+@router.post(
+    "/navigate",
+    response_model=schemas.NavigateResponse,
+    summary="Navigate (legacy)",
+    description="Legacy navigation endpoint returning mock routes by mode.",
+)
 def navigate(payload: schemas.NavigateRequest) -> schemas.NavigateResponse:
     routes: list[schemas.Route] = []
     for mode in payload.modes:
@@ -77,7 +86,12 @@ def navigate(payload: schemas.NavigateRequest) -> schemas.NavigateResponse:
     return schemas.NavigateResponse(routes=routes)
 
 
-@router.post("/bus/geometry", response_model=schemas.BusRouteGeometryResponse)
+@router.post(
+    "/bus/geometry",
+    response_model=schemas.BusRouteGeometryResponse,
+    summary="Bus geometry (legacy)",
+    description="Mock bus route geometry generator.",
+)
 def bus_geometry(payload: schemas.BusRouteGeometryRequest) -> schemas.BusRouteGeometryResponse:
     start_lat = 35.1495 + (random.random() - 0.5) * 0.1
     start_lng = -90.0490 + (random.random() - 0.5) * 0.1
@@ -99,7 +113,12 @@ def bus_geometry(payload: schemas.BusRouteGeometryRequest) -> schemas.BusRouteGe
     )
 
 
-@router.post("/evaluate", response_model=schemas.EvaluationResponse)
+@router.post(
+    "/evaluate",
+    response_model=schemas.EvaluationResponse,
+    summary="Evaluate (legacy)",
+    description="Mock operator evaluation endpoint.",
+)
 def evaluate(payload: schemas.OperatorEvaluateRequest) -> schemas.EvaluationResponse:
     center_lat = 35.1495
     center_lng = -90.0490
@@ -158,138 +177,6 @@ def evaluate(payload: schemas.OperatorEvaluateRequest) -> schemas.EvaluationResp
     )
 
 
-@router.post("/plan/fixed-line", response_model=schemas.FixedLineResponse)
-def plan_fixed_line(
-    payload: schemas.FixedLineRequest,
-    session: Session = Depends(get_session),
-) -> schemas.FixedLineResponse:
-    agency_timezone = gtfs_crud.get_agency_timezone(session)
-    if payload.agency_timezone and agency_timezone and payload.agency_timezone != agency_timezone:
-        raise HTTPException(
-            status_code=400,
-            detail=f"agency_timezone mismatch. GTFS={agency_timezone}, request={payload.agency_timezone}",
-        )
-
-    service_date = payload.service_date
-    if service_date is None and agency_timezone:
-        try:
-            now = datetime.now(ZoneInfo(agency_timezone))
-        except Exception as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        service_date = now.strftime("%Y%m%d")
-
-    active_service_ids = (
-        gtfs_crud.get_active_service_ids(session, service_date) if service_date else None
-    )
-
-    constraints = planning_service.FixedLineConstraints(
-        max_walk_meters=payload.max_walk_meters,
-        max_wait_minutes=payload.max_wait_minutes or settings.default_max_wait_minutes,
-        max_invehicle_minutes=payload.max_invehicle_minutes
-        or settings.default_max_invehicle_minutes,
-        max_total_minutes=payload.max_total_minutes or settings.default_max_total_minutes,
-        score_weight_total_minutes=payload.score_weight_total_minutes
-        or settings.score_weight_total_minutes,
-        score_weight_wait_minutes=payload.score_weight_wait_minutes
-        or settings.score_weight_wait_minutes,
-        score_weight_walk_meters=payload.score_weight_walk_meters
-        or settings.score_weight_walk_meters,
-        min_transfer_minutes=settings.default_min_transfer_minutes,
-    )
-    inputs = planning_service.FixedLineInputs(
-        origin_lat=payload.origin[0],
-        origin_lon=payload.origin[1],
-        destination_lat=payload.destination[0],
-        destination_lon=payload.destination[1],
-        depart_at_min=payload.depart_at_min or 0,
-        transfer_limit=payload.transfer_limit or settings.default_transfer_limit,
-        active_service_ids=active_service_ids,
-        constraints=constraints,
-    )
-
-    itinerary_candidates = planning_service.build_fixed_line_itineraries(session, inputs)
-    itineraries = [
-        schemas.Itinerary(
-            legs=[
-                schemas.Leg(
-                    mode=leg.mode,
-                    from_stop_id=leg.from_stop_id,
-                    to_stop_id=leg.to_stop_id,
-                    distance_m=leg.distance_m,
-                    duration_s=leg.duration_s,
-                    route_id=leg.route_id,
-                    trip_id=leg.trip_id,
-                )
-                for leg in candidate.legs
-            ],
-            total_duration_s=candidate.total_duration_s,
-            total_walk_m=candidate.total_walk_m,
-            total_wait_s=candidate.total_wait_s,
-            total_invehicle_s=candidate.total_invehicle_s,
-            score=schemas.ScoreBreakdown(
-                total_minutes=round(candidate.score_breakdown["total_minutes"], 4),
-                wait_minutes=round(candidate.score_breakdown["wait_minutes"], 4),
-                walk_meters=round(candidate.score_breakdown["walk_meters"], 2),
-                weight_total_minutes=candidate.score_breakdown["weight_total_minutes"],
-                weight_wait_minutes=candidate.score_breakdown["weight_wait_minutes"],
-                weight_walk_meters=candidate.score_breakdown["weight_walk_meters"],
-                score=round(candidate.score_breakdown["score"], 4),
-            ),
-        )
-        for candidate in itinerary_candidates
-    ]
-
-    note = "Rule-based itinerary selection using stop distance and time constraints."
-    return schemas.FixedLineResponse(itineraries=itineraries, note=note)
-
-
-@router.post("/plan/on-demand", response_model=schemas.OnDemandResponse)
-def plan_on_demand(
-    payload: schemas.OnDemandRequest,
-    session: Session = Depends(get_session),
-) -> schemas.OnDemandResponse:
-    pickup_start = payload.pickup_window_start_min or 0
-    pickup_end = payload.pickup_window_end_min or (pickup_start + 30)
-    dropoff_end = payload.dropoff_window_end_min or (pickup_start + 90)
-
-    request_id = f"req-{uuid.uuid4().hex[:10]}"
-    request = ondemand_service.Request(
-        request_id=request_id,
-        origin_lat=payload.origin[0],
-        origin_lon=payload.origin[1],
-        destination_lat=payload.destination[0],
-        destination_lon=payload.destination[1],
-        passengers=payload.passengers,
-        pickup_window=ondemand_service.TimeWindow(pickup_start, pickup_end),
-        dropoff_window=ondemand_service.TimeWindow(pickup_start, dropoff_end),
-    )
-
-    ondemand_crud.create_request(session, request)
-    vehicles = ondemand_crud.load_vehicle_states(session, request.origin_lat, request.origin_lon)
-    result = ondemand_service.find_best_insertion(vehicles, request, start_min=pickup_start)
-
-    if result is None:
-        return schemas.OnDemandResponse(
-            vehicle_id="",
-            eta_minutes=0,
-            distance_km=0.0,
-            note="No feasible vehicle found for the requested windows.",
-        )
-
-    ondemand_crud.persist_insertion(
-        session,
-        result.vehicle_id,
-        request_id,
-        result.route,
-        result.planned_times,
-    )
-
-    return schemas.OnDemandResponse(
-        vehicle_id=result.vehicle_id,
-        eta_minutes=result.eta_minutes,
-        distance_km=result.distance_km,
-        note=result.note,
-    )
 
 
 def _generate_mock_route(mode: str, origin: list[float], destination: list[float]) -> schemas.Route:

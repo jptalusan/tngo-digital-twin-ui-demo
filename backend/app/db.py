@@ -17,11 +17,14 @@ engine = create_engine(database_url, echo=False, future=True)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
 
 
-def init_db() -> None:
+def init_db(drop: bool = False) -> None:
     if settings.database_url.startswith("postgresql"):
         with engine.connect() as conn:
             conn.execute(text("CREATE EXTENSION IF NOT EXISTS postgis"))
             conn.commit()
+
+    if drop:
+        Base.metadata.drop_all(engine)
 
     Base.metadata.create_all(engine)
 

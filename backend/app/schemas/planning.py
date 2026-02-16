@@ -6,21 +6,28 @@ from pydantic import BaseModel, Field
 
 
 class AutocompleteResult(BaseModel):
+    """Autocomplete suggestion for stops/depots."""
     id: str
     name: str
-    coordinates: List[float]
+    coordinates: List[float] = Field(description="Coordinates as [lat, lon].")
 
 
 class ReverseGeocodeRequest(BaseModel):
-    coordinates: List[float] = Field(min_length=2, max_length=2)
+    coordinates: List[float] = Field(
+        min_length=2,
+        max_length=2,
+        description="Coordinates as [lat, lon] to reverse geocode.",
+    )
 
 
 class ReverseGeocodeResponse(BaseModel):
+    """Resolved name/address for a coordinate."""
     name: str
     address: str
 
 
 class RouteSegment(BaseModel):
+    """Segment used by legacy navigation endpoint."""
     instruction: str
     distance: str
     duration: str
@@ -29,6 +36,7 @@ class RouteSegment(BaseModel):
 
 
 class Route(BaseModel):
+    """Route used by legacy navigation endpoint."""
     mode: str
     totalDuration: str
     totalDistance: str
@@ -37,36 +45,44 @@ class Route(BaseModel):
 
 
 class NavigateRequest(BaseModel):
-    origin: List[float] = Field(min_length=2, max_length=2)
-    destination: List[float] = Field(min_length=2, max_length=2)
+    origin: List[float] = Field(min_length=2, max_length=2, description="Origin [lat, lon].")
+    destination: List[float] = Field(
+        min_length=2, max_length=2, description="Destination [lat, lon]."
+    )
     modes: List[str]
 
 
 class NavigateResponse(BaseModel):
+    """Legacy navigation response."""
     routes: List[Route]
 
 
 class BusRouteGeometryRequest(BaseModel):
+    """Legacy bus geometry request."""
     origin: str
     destination: str
 
 
 class BusRouteGeometryResponse(BaseModel):
+    """Legacy bus geometry response."""
     geometry: List[List[float]]
     distance: str
     duration: str
 
 
 class OperatorEvaluateMode(BaseModel):
+    """Legacy evaluation mode config."""
     type: str
     config: dict
 
 
 class OperatorEvaluateRequest(BaseModel):
+    """Legacy evaluation request."""
     modes: List[OperatorEvaluateMode]
 
 
 class EvaluationMetrics(BaseModel):
+    """Legacy evaluation metrics."""
     totalCoverage: str
     estimatedCost: str
     ridership: str
@@ -75,6 +91,7 @@ class EvaluationMetrics(BaseModel):
 
 
 class EvaluationResponse(BaseModel):
+    """Legacy evaluation response."""
     success: bool
     message: str
     metrics: EvaluationMetrics
@@ -84,11 +101,25 @@ class EvaluationResponse(BaseModel):
 
 
 class FixedLineRequest(BaseModel):
-    origin: List[float] = Field(min_length=2, max_length=2)
-    destination: List[float] = Field(min_length=2, max_length=2)
-    depart_at_min: Optional[int] = None
-    service_date: Optional[str] = None
-    agency_timezone: Optional[str] = None
+    """Request for fixed-line planning."""    
+    origin: List[float] = Field(
+        min_length=2, max_length=2, description="Origin [lat, lon]."
+    )
+    destination: List[float] = Field(
+        min_length=2, max_length=2, description="Destination [lat, lon]."
+    )
+    depart_at_min: Optional[int] = Field(
+        default=None, description="Minutes since midnight for departure."
+    )
+    arrive_by_min: Optional[int] = Field(
+        default=None, description="Minutes since midnight to arrive by (heuristic)."
+    )
+    service_date: Optional[str] = Field(
+        default=None, description="Service date in YYYYMMDD."
+    )
+    agency_timezone: Optional[str] = Field(
+        default=None, description="Agency timezone for validation."
+    )
     max_walk_meters: int = 800
     max_wait_minutes: Optional[int] = None
     max_invehicle_minutes: Optional[int] = None
@@ -100,6 +131,7 @@ class FixedLineRequest(BaseModel):
 
 
 class Leg(BaseModel):
+    """A single leg in an itinerary."""
     mode: str
     from_stop_id: Optional[str] = None
     to_stop_id: Optional[str] = None
@@ -110,6 +142,7 @@ class Leg(BaseModel):
 
 
 class ScoreBreakdown(BaseModel):
+    """Score breakdown for itinerary comparison."""
     total_minutes: float
     wait_minutes: float
     walk_meters: float
@@ -120,6 +153,7 @@ class ScoreBreakdown(BaseModel):
 
 
 class Itinerary(BaseModel):
+    """An ordered set of legs with aggregate metrics."""
     legs: List[Leg]
     total_duration_s: int
     total_walk_m: float
@@ -129,13 +163,17 @@ class Itinerary(BaseModel):
 
 
 class FixedLineResponse(BaseModel):
+    """Fixed-line planning response."""
     itineraries: List[Itinerary]
     note: str
 
 
 class OnDemandRequest(BaseModel):
-    origin: List[float] = Field(min_length=2, max_length=2)
-    destination: List[float] = Field(min_length=2, max_length=2)
+    """Request for on-demand planning."""
+    origin: List[float] = Field(min_length=2, max_length=2, description="Origin [lat, lon].")
+    destination: List[float] = Field(
+        min_length=2, max_length=2, description="Destination [lat, lon]."
+    )
     passengers: int = 1
     pickup_window_start_min: Optional[int] = None
     pickup_window_end_min: Optional[int] = None
@@ -143,6 +181,7 @@ class OnDemandRequest(BaseModel):
 
 
 class OnDemandResponse(BaseModel):
+    """On-demand planning response."""
     vehicle_id: str
     eta_minutes: int
     distance_km: float
