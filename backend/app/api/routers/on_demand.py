@@ -260,3 +260,86 @@ def summary_on_demand(
         fulfilled_pct=fulfilled_pct,
         note="Summary computed from on-demand requests, trips, and route stops.",
     )
+
+
+@router.post(
+    "/on-demand/manifest",
+    response_model=schemas.OnDemandManifestResponse,
+    summary="Generate on-demand OSRM manifest",
+    description="Generate a route geometry for the active schedule of a vehicle.",
+)
+def manifest_on_demand(
+    payload: schemas.OnDemandManifestRequest,
+    session: Session = Depends(get_session),
+) -> schemas.OnDemandManifestResponse:
+    stops = ondemand_crud.load_active_route_with_times(session, payload.vehicle_id)
+    if not stops:
+        raise HTTPException(status_code=404, detail="No active route found for vehicle.")
+
+    route_events = []
+    manifest_stops: list[schemas.OnDemandManifestStop] = []
+    manifest_legs: list[schemas.OnDemandManifestLeg] = []
+    for stop in stops:
+        if stop.lat is None or stop.lon is None:
+            continue
+        route_events.append(
+            ondemand_service.StopEvent(
+                lat=stop.lat,
+                lon=stop.lon,
+                window=ondemand_service.TimeWindow(0, 0),
+                delta_load=0,
+            )
+        )
+        manifest_stops.append(
+            schemas.OnDemandManifestStop(
+                sequence=stop.sequence,
+                lat=stop.lat,
+                lon=stop.lon,
+                stop_type=stop.stop_type,
+                request_id=stop.request_id,
+                window_start_min=stop.window_start_min,
+                window_end_min=stop.window_end_min,
+                planned_arrival_min=stop.planned_arrival_min,
+                planned_departure_min=stop.planned_departure_min,
+            )
+        )
+
+    geometry, distance_m, duration_s = ondemand_service.build_osrm_route_geometry(route_events)
+
+    for idx, (prev, curr) in enumerate(zip(route_events[:-1], route_events[1:])):
+        leg_geom, leg_dist, leg_dur = ondemand_service.build_osrm_leg_geometry(prev, curr)
+        prev_stop = manifest_stops[idx]
+        curr_stop = manifest_stops[idx + 1]
+        manifest_legs.append(
+            schemas.OnDemandManifestLeg(
+                mode="on-demand",
+                from_stop_id=None,
+                to_stop_id=None,
+                from_sequence=prev_stop.sequence,
+                to_sequence=curr_stop.sequence,
+                from_lat=prev.lat,
+                from_lon=prev.lon,
+                to_lat=curr.lat,
+                to_lon=curr.lon,
+                geometry=leg_geom,
+                distance_m=None if leg_dist is None else round(leg_dist, 2),
+                duration_s=None if leg_dur is None else int(round(leg_dur)),
+                route_id=None,
+                trip_id=None,
+            )
+        )
+
+    note = "OSRM route generated from active route stops."
+    if geometry is None:
+        note = "OSRM route unavailable. Check OSRM service or route stops."
+
+    return schemas.OnDemandManifestResponse(
+        vehicle_id=payload.vehicle_id,
+        stop_count=len(route_events),
+        stops=manifest_stops,
+        legs=manifest_legs,
+        geometry=geometry,
+        distance_m=None if distance_m is None else round(distance_m, 2),
+        duration_s=None if duration_s is None else round(duration_s, 2),
+        note=note,
+    )

@@ -134,15 +134,20 @@ class FixedLineRequest(BaseModel):
     )
 
 
-class Leg(BaseModel):
-    """A single leg in an itinerary."""
+class BaseLeg(BaseModel):
+    """Common leg fields shared across itineraries and manifests."""
     mode: str
     from_stop_id: Optional[str] = None
     to_stop_id: Optional[str] = None
     distance_m: Optional[float] = None
     duration_s: Optional[int] = None
+    geometry: Optional[str] = None
     route_id: Optional[str] = None
     trip_id: Optional[str] = None
+
+
+class Leg(BaseLeg):
+    """A single leg in an itinerary."""
 
 
 class ScoreBreakdown(BaseModel):
@@ -243,3 +248,43 @@ class OnDemandSummaryResponse(BaseModel):
     assigned_pct: float
     fulfilled_pct: float
     note: str
+
+
+class OnDemandManifestRequest(BaseModel):
+    """Request to generate an OSRM route for a vehicle's active schedule."""
+    vehicle_id: str = Field(description="Vehicle identifier to generate a route for.")
+
+
+class OnDemandManifestResponse(BaseModel):
+    """OSRM route manifest for a vehicle's active schedule."""
+    vehicle_id: str
+    stop_count: int
+    stops: list["OnDemandManifestStop"]
+    legs: list["OnDemandManifestLeg"]
+    geometry: Optional[str]
+    distance_m: Optional[float]
+    duration_s: Optional[float]
+    note: str
+
+
+class OnDemandManifestStop(BaseModel):
+    """Stop info for on-demand manifest rendering."""
+    sequence: int
+    lat: float
+    lon: float
+    stop_type: Optional[str] = None
+    request_id: Optional[str] = None
+    window_start_min: Optional[int] = None
+    window_end_min: Optional[int] = None
+    planned_arrival_min: Optional[int] = None
+    planned_departure_min: Optional[int] = None
+
+
+class OnDemandManifestLeg(BaseLeg):
+    """Leg geometry between consecutive on-demand stops."""
+    from_sequence: int
+    to_sequence: int
+    from_lat: float
+    from_lon: float
+    to_lat: float
+    to_lon: float

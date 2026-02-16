@@ -14,6 +14,7 @@ from app.services import hubs
 from app.logging.config import get_logger
 from app.crud import gtfs as gtfs_crud
 from app.services.planning import get_distance_m
+import httpx
 
 logger = get_logger("fixed_line")
 
@@ -61,6 +62,29 @@ def _fill_leg_metrics(
         return None, None
 
     brt_speed_mps = settings.default_brt_speed_kmph * 1000 / 3600
+    def _osrm_leg_geometry(
+        from_lat: float, from_lon: float, to_lat: float, to_lon: float
+    ) -> tuple[Optional[str], Optional[float], Optional[float]]:
+        if not settings.enable_osrm:
+            return None, None, None
+        url = f"{settings.osrm_url}/route/v1/driving/{from_lon},{from_lat};{to_lon},{to_lat}"
+        params = {"overview": "full", "geometries": "polyline"}
+        try:
+            with httpx.Client(timeout=8.0) as client:
+                resp = client.get(url, params=params)
+                resp.raise_for_status()
+                data = resp.json()
+        except Exception:
+            return None, None, None
+        routes = data.get("routes") or []
+        if not routes:
+            return None, None, None
+        route_info = routes[0]
+        return (
+            route_info.get("geometry"),
+            route_info.get("distance"),
+            route_info.get("duration"),
+        )
 
     for leg in legs:
         if leg.distance_m is None or leg.duration_s is None:
@@ -77,6 +101,20 @@ def _fill_leg_metrics(
                     leg.duration_s = int(leg.distance_m / settings.default_walk_speed_mps)
                 elif leg.route_id == "BOC_BRT":
                     leg.duration_s = int(leg.distance_m / brt_speed_mps)
+
+        if leg.geometry is None:
+            from_coords, to_coords = _coords_for_leg(leg)
+            if from_coords is None or to_coords is None:
+                continue
+            geom, dist, dur = _osrm_leg_geometry(
+                from_coords[0], from_coords[1], to_coords[0], to_coords[1]
+            )
+            if geom:
+                leg.geometry = geom
+            if leg.distance_m is None and dist is not None:
+                leg.distance_m = round(dist, 2)
+            if leg.duration_s is None and dur is not None:
+                leg.duration_s = int(round(dur))
 
 
 @router.post(

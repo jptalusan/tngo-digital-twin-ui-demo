@@ -63,6 +63,60 @@ def compute_route_distance_m(route: list[StopEvent]) -> float:
     return total
 
 
+def build_osrm_route_geometry(route: list[StopEvent]) -> tuple[Optional[str], Optional[float], Optional[float]]:
+    if not settings.enable_osrm:
+        return None, None, None
+    if len(route) < 2:
+        return None, None, None
+
+    coords = ";".join(f"{stop.lon},{stop.lat}" for stop in route)
+    url = f"{settings.osrm_url}/route/v1/driving/{coords}"
+    params = {"overview": "full", "geometries": "polyline"}
+    try:
+        with httpx.Client(timeout=10.0) as client:
+            resp = client.get(url, params=params)
+            resp.raise_for_status()
+            data = resp.json()
+    except Exception:
+        return None, None, None
+
+    routes = data.get("routes") or []
+    if not routes:
+        return None, None, None
+    route_info = routes[0]
+    return (
+        route_info.get("geometry"),
+        route_info.get("distance"),
+        route_info.get("duration"),
+    )
+
+
+def build_osrm_leg_geometry(
+    origin: StopEvent, destination: StopEvent
+) -> tuple[Optional[str], Optional[float], Optional[float]]:
+    if not settings.enable_osrm:
+        return None, None, None
+    url = f"{settings.osrm_url}/route/v1/driving/{origin.lon},{origin.lat};{destination.lon},{destination.lat}"
+    params = {"overview": "full", "geometries": "polyline"}
+    try:
+        with httpx.Client(timeout=10.0) as client:
+            resp = client.get(url, params=params)
+            resp.raise_for_status()
+            data = resp.json()
+    except Exception:
+        return None, None, None
+
+    routes = data.get("routes") or []
+    if not routes:
+        return None, None, None
+    route_info = routes[0]
+    return (
+        route_info.get("geometry"),
+        route_info.get("distance"),
+        route_info.get("duration"),
+    )
+
+
 def _default_speed_kmph() -> float:
     return float(getattr(settings, "default_on_demand_speed_kmph", 30.0))
 

@@ -121,6 +121,15 @@ curl -X POST http://localhost:8000/api/on-demand/fulfillment \
 curl http://localhost:8000/api/on-demand/summary
 ```
 
+## On-demand route manifest (OSRM)
+```bash
+curl -X POST http://localhost:8000/api/on-demand/manifest \
+  -H "Content-Type: application/json" \
+  -d '{
+    "vehicle_id": "veh-001"
+  }'
+```
+
 ## Multimodal (compare fixed-line, on-demand, multimodal)
 
 ```bash
