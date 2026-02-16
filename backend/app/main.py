@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
 from app.api.routers import health, planning
-from app.api.routers import fixed_line, on_demand, multimodal
+from app.api.routers import fixed_line, on_demand, multimodal, nearest_stops
 
 app = FastAPI(title="Transit Planning API", version="0.1.0")
 
@@ -21,3 +21,4 @@ app.include_router(planning.router, prefix=settings.api_prefix)
 app.include_router(fixed_line.router, prefix=settings.api_prefix)
 app.include_router(on_demand.router, prefix=settings.api_prefix)
 app.include_router(multimodal.router, prefix=settings.api_prefix)
+app.include_router(nearest_stops.router, prefix=settings.api_prefix)

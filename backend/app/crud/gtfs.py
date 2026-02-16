@@ -97,3 +97,75 @@ def load_trips_for_ids(session: Session, trip_ids: set[str]) -> list[Trip]:
     if not trip_ids:
         return []
     return session.execute(select(Trip).where(Trip.trip_id.in_(trip_ids))).scalars().all()
+
+
+def load_stops_by_ids(session: Session, stop_ids: set[str]) -> list[Stop]:
+    if not stop_ids:
+        return []
+    return session.execute(select(Stop).where(Stop.stop_id.in_(stop_ids))).scalars().all()
+
+
+def find_stop_ids_by_prefix_near(
+    session: Session,
+    prefix: str,
+    lat: float,
+    lon: float,
+    max_distance_m: float,
+    limit: int = 20,
+) -> set[str]:
+    dlat = max_distance_m / 111_320
+    dlon = max_distance_m / (111_320 * max(0.1, abs(_cos_deg(lat))))
+
+    stops = (
+        session.execute(
+            select(Stop).where(
+                Stop.stop_id.like(f"{prefix}%"),
+                Stop.lat.is_not(None),
+                Stop.lon.is_not(None),
+                Stop.lat.between(lat - dlat, lat + dlat),
+                Stop.lon.between(lon - dlon, lon + dlon),
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+    def dist(a, b, c, d):
+        import math
+
+        rad = math.pi / 180
+        dlat = (c - a) * rad
+        dlon = (d - b) * rad
+        x = math.sin(dlat / 2) ** 2 + math.cos(a * rad) * math.cos(c * rad) * math.sin(
+            dlon / 2
+        ) ** 2
+        return 6371000 * 2 * math.atan2(math.sqrt(x), math.sqrt(1 - x))
+
+    ranked = sorted(
+        [(dist(lat, lon, s.lat, s.lon), s.stop_id) for s in stops],
+        key=lambda item: item[0],
+    )
+    return {sid for _, sid in ranked[:limit]}
+
+
+def find_nearest_stop_by_prefix(
+    session: Session,
+    prefix: str,
+    lat: float,
+    lon: float,
+    max_distance_m: float,
+) -> Stop | None:
+    stop_ids = find_stop_ids_by_prefix_near(
+        session, prefix, lat, lon, max_distance_m, limit=1
+    )
+    if not stop_ids:
+        return None
+    return (
+        session.execute(select(Stop).where(Stop.stop_id.in_(stop_ids))).scalars().first()
+    )
+
+
+def _cos_deg(deg: float) -> float:
+    import math
+
+    return math.cos(deg * math.pi / 180)

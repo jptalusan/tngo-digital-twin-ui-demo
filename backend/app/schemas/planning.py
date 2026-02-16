@@ -128,6 +128,10 @@ class FixedLineRequest(BaseModel):
     score_weight_total_minutes: Optional[float] = None
     score_weight_wait_minutes: Optional[float] = None
     score_weight_walk_meters: Optional[float] = None
+    boc_request: Optional[bool] = Field(
+        default=False,
+        description="If true, use BOC manual pipeline: origin -> BOC ingress -> BOC egress -> walk.",
+    )
 
 
 class Leg(BaseModel):

@@ -3,10 +3,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional
 
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.logging.config import get_logger
 from app.models.gtfs import Stop, StopTime, Trip
 from app.crud import gtfs as gtfs_crud
 
@@ -74,6 +75,8 @@ class FixedLineInputs:
     transfer_limit: int
     active_service_ids: Optional[set[str]]
     constraints: FixedLineConstraints
+    extra_access_stop_ids: Optional[set[str]] = None
+    extra_egress_stop_ids: Optional[set[str]] = None
 
 
 def find_nearby_stops(
@@ -81,6 +84,7 @@ def find_nearby_stops(
     lat: float,
     lon: float,
     max_distance_m: float,
+    extra_stop_ids: Optional[set[str]] = None,
 ) -> list[StopCandidate]:
     if max_distance_m <= 0:
         return []
@@ -110,7 +114,21 @@ def find_nearby_stops(
             walk_duration = int(dist / settings.default_walk_speed_mps)
             candidates.append(StopCandidate(stop=stop, distance_m=dist, walk_duration_s=walk_duration))
 
-    return candidates
+    if extra_stop_ids:
+        extra_stops = gtfs_crud.load_stops_by_ids(session, extra_stop_ids)
+        for stop in extra_stops:
+            if stop.lat is None or stop.lon is None:
+                continue
+            candidates.append(StopCandidate(stop=stop, distance_m=0.0, walk_duration_s=0))
+
+    # Deduplicate by stop_id, prefer shorter walk duration
+    dedup: dict[str, StopCandidate] = {}
+    for candidate in candidates:
+        key = candidate.stop.stop_id
+        if key not in dedup or candidate.walk_duration_s < dedup[key].walk_duration_s:
+            dedup[key] = candidate
+
+    return list(dedup.values())
 
 
 
@@ -130,18 +148,37 @@ def find_transit_candidates(
     access_ids = {candidate.stop.stop_id for candidate in access_stops}
     egress_ids = {candidate.stop.stop_id for candidate in egress_stops}
 
-    access_stop_times = gtfs_crud.load_stop_times_for_stops(session, access_ids)
-    egress_stop_times = gtfs_crud.load_stop_times_for_stops(session, egress_ids)
+    time_start = _min_to_time(depart_at_min)
+    time_end = _min_to_time(depart_at_min + max_wait_minutes)
 
+    access_query = (
+        select(StopTime)
+        .join(Trip, StopTime.trip_id == Trip.trip_id)
+        .where(StopTime.stop_id.in_(access_ids))
+        .where(
+            func.coalesce(StopTime.departure_time, StopTime.arrival_time).between(
+                time_start, time_end
+            )
+        )
+    )
     if active_trip_ids is not None:
-        access_stop_times = [st for st in access_stop_times if st.trip_id in active_trip_ids]
-        egress_stop_times = [st for st in egress_stop_times if st.trip_id in active_trip_ids]
+        access_query = access_query.where(StopTime.trip_id.in_(active_trip_ids))
+
+    access_stop_times = session.execute(access_query).scalars().all()
+
+    trip_ids = {st.trip_id for st in access_stop_times}
+    if not trip_ids:
+        return []
+
+    egress_query = select(StopTime).where(
+        StopTime.stop_id.in_(egress_ids), StopTime.trip_id.in_(trip_ids)
+    )
+    egress_stop_times = session.execute(egress_query).scalars().all()
 
     egress_by_trip: dict[str, list[StopTime]] = {}
     for st in egress_stop_times:
         egress_by_trip.setdefault(st.trip_id, []).append(st)
 
-    trip_ids = {st.trip_id for st in access_stop_times}
     trips = gtfs_crud.load_trips_for_ids(session, trip_ids)
     trip_map = {trip.trip_id: trip for trip in trips}
 
@@ -212,10 +249,18 @@ def build_fixed_line_itineraries(
         active_trip_ids = {trip.trip_id for trip in trips}
 
     access = find_nearby_stops(
-        session, inputs.origin_lat, inputs.origin_lon, inputs.constraints.max_walk_meters
+        session,
+        inputs.origin_lat,
+        inputs.origin_lon,
+        inputs.constraints.max_walk_meters,
+        extra_stop_ids=inputs.extra_access_stop_ids,
     )
     egress = find_nearby_stops(
-        session, inputs.destination_lat, inputs.destination_lon, inputs.constraints.max_walk_meters
+        session,
+        inputs.destination_lat,
+        inputs.destination_lon,
+        inputs.constraints.max_walk_meters,
+        extra_stop_ids=inputs.extra_egress_stop_ids,
     )
 
     candidates = find_transit_candidates(
@@ -307,12 +352,13 @@ def build_fixed_line_itineraries(
 
     if inputs.transfer_limit >= 1:
         itineraries.extend(
-            _build_transfer_itineraries(
+            _build_itineraries_with_transfers(
                 session,
                 access,
                 egress,
                 inputs.depart_at_min,
                 inputs.constraints,
+                max_transfers=inputs.transfer_limit,
                 active_trip_ids=active_trip_ids,
             )
         )
@@ -320,13 +366,14 @@ def build_fixed_line_itineraries(
     return sorted(itineraries, key=lambda item: item.score)[:3]
 
 
-def _build_transfer_itineraries(
+def _build_itineraries_with_transfers(
     session: Session,
     access: list[StopCandidate],
     egress: list[StopCandidate],
     depart_at_min: int,
     constraints: FixedLineConstraints,
     active_trip_ids: Optional[set[str]] = None,
+    max_transfers: int = 1,
 ) -> list[ItineraryCandidate]:
     if not access or not egress:
         return []
@@ -334,186 +381,290 @@ def _build_transfer_itineraries(
     access_ids = {candidate.stop.stop_id for candidate in access}
     egress_ids = {candidate.stop.stop_id for candidate in egress}
 
-    access_stop_times = gtfs_crud.load_stop_times_for_stops(session, access_ids)
-    egress_stop_times = gtfs_crud.load_stop_times_for_stops(session, egress_ids)
+    time_start = _min_to_time(depart_at_min)
+    time_end = _min_to_time(depart_at_min + constraints.max_total_minutes)
 
+    access_query = (
+        select(StopTime)
+        .join(Trip, StopTime.trip_id == Trip.trip_id)
+        .where(StopTime.stop_id.in_(access_ids))
+        .where(
+            func.coalesce(StopTime.departure_time, StopTime.arrival_time).between(
+                time_start, time_end
+            )
+        )
+    )
     if active_trip_ids is not None:
-        access_stop_times = [st for st in access_stop_times if st.trip_id in active_trip_ids]
-        egress_stop_times = [st for st in egress_stop_times if st.trip_id in active_trip_ids]
+        access_query = access_query.where(StopTime.trip_id.in_(active_trip_ids))
 
-    trip_ids = {st.trip_id for st in access_stop_times} | {st.trip_id for st in egress_stop_times}
+    access_stop_times = session.execute(access_query).scalars().all()
+
+    trip_ids = {st.trip_id for st in access_stop_times}
+    if active_trip_ids is not None:
+        trip_ids |= active_trip_ids
+    if not trip_ids:
+        return []
+
+    egress_query = select(StopTime).where(
+        StopTime.stop_id.in_(egress_ids),
+        StopTime.trip_id.in_(trip_ids),
+    )
+    egress_stop_times = session.execute(egress_query).scalars().all()
+
+    trip_ids = {st.trip_id for st in access_stop_times} | {
+        st.trip_id for st in egress_stop_times
+    }
     trip_stop_times = gtfs_crud.load_stop_times_for_trips(session, trip_ids)
 
     trip_map = {trip.trip_id: trip for trip in gtfs_crud.load_trips_for_ids(session, trip_ids)}
 
     stops_by_trip: dict[str, list[StopTime]] = {}
-    stop_time_by_trip_stop: dict[tuple[str, str], StopTime] = {}
     for st in trip_stop_times:
         stops_by_trip.setdefault(st.trip_id, []).append(st)
-        stop_time_by_trip_stop[(st.trip_id, st.stop_id)] = st
 
     for st_list in stops_by_trip.values():
         st_list.sort(key=lambda st: st.stop_sequence or 0)
 
-    access_map = {candidate.stop.stop_id: candidate.stop for candidate in access}
-    egress_map = {candidate.stop.stop_id: candidate.stop for candidate in egress}
     access_walk_map = {candidate.stop.stop_id: candidate for candidate in access}
     egress_walk_map = {candidate.stop.stop_id: candidate for candidate in egress}
 
+    stop_index: dict[str, list[StopTime]] = {}
+    for st in trip_stop_times:
+        dep_min = _parse_time_min(st.departure_time or st.arrival_time)
+        if dep_min is None:
+            continue
+        stop_index.setdefault(st.stop_id, []).append(st)
+
+    for st_list in stop_index.values():
+        st_list.sort(key=lambda st: _parse_time_min(st.departure_time or st.arrival_time) or 0)
+
+    # Build nearby stop map for transfer between different stop_ids
+    stop_ids = set(stop_index.keys())
+    stops = gtfs_crud.load_stops_by_ids(session, stop_ids)
+    stop_coords = {s.stop_id: (s.lat, s.lon) for s in stops if s.lat is not None and s.lon is not None}
+    transfer_radius = settings.transfer_walk_radius_m
+    transfer_radius_lat = transfer_radius / 111_320
+    transfer_radius_lon_factor = 1 / 111_320
+
+    stop_items = [
+        (stop_id, coord[0], coord[1])
+        for stop_id, coord in stop_coords.items()
+    ]
+
+    nearby_stops: dict[str, list[tuple[str, float]]] = {}
+    for stop_id, lat, lon in stop_items:
+        candidates = []
+        for other_id, o_lat, o_lon in stop_items:
+            if other_id == stop_id:
+                continue
+            if abs(o_lat - lat) > transfer_radius_lat:
+                continue
+            if abs(o_lon - lon) > transfer_radius_lon_factor * max(0.1, abs(_cos_deg(lat))) * transfer_radius:
+                continue
+            dist = get_distance_m(lat, lon, o_lat, o_lon)
+            if dist <= transfer_radius:
+                candidates.append((other_id, dist))
+        nearby_stops[stop_id] = candidates
+
     itineraries: list[ItineraryCandidate] = []
-    for access_st in access_stop_times:
-        if access_st.stop_sequence is None:
-            continue
-        depart1 = _parse_time_min(access_st.departure_time or access_st.arrival_time)
-        if depart1 is None or depart1 < depart_at_min:
-            continue
-        wait1 = depart1 - depart_at_min
-        if wait1 > constraints.max_wait_minutes:
-            continue
+    debug_traces: list[str] = []
+    MAX_STATES = 2000
+    states = []
 
-        trip1_stops = stops_by_trip.get(access_st.trip_id, [])
-        for transfer_st in trip1_stops:
-            if transfer_st.stop_sequence is None:
-                continue
-            if transfer_st.stop_sequence <= access_st.stop_sequence:
-                continue
-            transfer_arrival = _parse_time_min(transfer_st.arrival_time or transfer_st.departure_time)
-            if transfer_arrival is None:
-                continue
-
-            for egress_st in egress_stop_times:
-                if egress_st.stop_sequence is None:
-                    continue
-                if egress_st.trip_id == access_st.trip_id:
-                    continue
-                trip2_stops = stops_by_trip.get(egress_st.trip_id, [])
-                transfer_trip2 = stop_time_by_trip_stop.get((egress_st.trip_id, transfer_st.stop_id))
-                if transfer_trip2 is None:
-                    continue
-                if transfer_trip2.stop_sequence is None:
-                    continue
-                if transfer_trip2.stop_sequence >= egress_st.stop_sequence:
-                    continue
-
-                depart2 = _parse_time_min(
-                    transfer_trip2.departure_time or transfer_trip2.arrival_time
-                )
-                if depart2 is None:
-                    continue
-                if depart2 < transfer_arrival + constraints.min_transfer_minutes:
-                    continue
-
-                arrive2 = _parse_time_min(egress_st.arrival_time or egress_st.departure_time)
-                if arrive2 is None:
-                    continue
-
-                in_vehicle1 = transfer_arrival - depart1
-                in_vehicle2 = arrive2 - depart2
-                if in_vehicle1 <= 0 or in_vehicle2 <= 0:
-                    continue
-
-                walk_access = access_walk_map.get(access_st.stop_id)
-                walk_egress = egress_walk_map.get(egress_st.stop_id)
-                walk_access_s = walk_access.walk_duration_s if walk_access else 0
-                walk_egress_s = walk_egress.walk_duration_s if walk_egress else 0
-                transfer_wait_s = (depart2 - transfer_arrival) * 60
-
-                total_wait_s = wait1 * 60 + transfer_wait_s
-                total_invehicle_s = (in_vehicle1 + in_vehicle2) * 60
-                total_s = walk_access_s + total_wait_s + total_invehicle_s + walk_egress_s
-                if total_s > constraints.max_total_minutes * 60:
-                    continue
-
-                legs: list[LegCandidate] = []
-                if walk_access_s > 0:
-                    legs.append(
-                        LegCandidate(
-                            mode="walk",
-                            from_stop_id=None,
-                            to_stop_id=access_st.stop_id,
-                            distance_m=walk_access.distance_m if walk_access else None,
-                            duration_s=walk_access_s,
-                        )
-                    )
-
-                trip1 = trip_map.get(access_st.trip_id)
-                trip2 = trip_map.get(egress_st.trip_id)
-                if trip1 is None or trip2 is None:
-                    continue
-
-                legs.append(
+    for candidate in access:
+        start_time = depart_at_min + int(candidate.walk_duration_s / 60)
+        states.append(
+            {
+                "stop_id": candidate.stop.stop_id,
+                "time_min": start_time,
+                "legs": [
                     LegCandidate(
-                        mode="transit",
-                        from_stop_id=access_st.stop_id,
-                        to_stop_id=transfer_st.stop_id,
-                        distance_m=None,
-                        duration_s=in_vehicle1 * 60,
-                        route_id=trip1.route_id,
-                        trip_id=trip1.trip_id,
+                        mode="walk",
+                        from_stop_id=None,
+                        to_stop_id=candidate.stop.stop_id,
+                        distance_m=candidate.distance_m,
+                        duration_s=candidate.walk_duration_s,
                     )
-                )
-                legs.append(
-                    LegCandidate(
-                        mode="transfer",
-                        from_stop_id=transfer_st.stop_id,
-                        to_stop_id=transfer_st.stop_id,
-                        distance_m=None,
-                        duration_s=transfer_wait_s,
-                    )
-                )
-                legs.append(
-                    LegCandidate(
-                        mode="transit",
-                        from_stop_id=transfer_st.stop_id,
-                        to_stop_id=egress_st.stop_id,
-                        distance_m=None,
-                        duration_s=in_vehicle2 * 60,
-                        route_id=trip2.route_id,
-                        trip_id=trip2.trip_id,
-                    )
-                )
+                ]
+                if candidate.walk_duration_s > 0
+                else [],
+                "total_wait_s": 0,
+                "total_invehicle_s": 0,
+                "trips_taken": 0,
+                "total_walk_m": candidate.distance_m,
+            }
+        )
+
+    visited = set()
+    while states and len(itineraries) < 25:
+        state = states.pop(0)
+        key = (state["stop_id"], state["time_min"], state["trips_taken"])
+        if key in visited:
+            continue
+        visited.add(key)
+        if len(visited) > MAX_STATES:
+            break
+
+        stop_id = state["stop_id"]
+        time_min = state["time_min"]
+        trips_taken = state["trips_taken"]
+        if trips_taken - 1 > max_transfers:
+            continue
+
+        # Check egress
+        if stop_id in egress_walk_map:
+            walk_egress = egress_walk_map[stop_id]
+            walk_egress_s = walk_egress.walk_duration_s
+            total_s = (
+                (time_min - depart_at_min) * 60
+                + walk_egress_s
+            )
+            if total_s <= constraints.max_total_minutes * 60:
+                legs = list(state["legs"])
+                if not any(leg.mode == "transit" for leg in legs):
+                    continue
                 if walk_egress_s > 0:
                     legs.append(
                         LegCandidate(
                             mode="walk",
-                            from_stop_id=egress_st.stop_id,
+                            from_stop_id=stop_id,
                             to_stop_id=None,
-                            distance_m=walk_egress.distance_m if walk_egress else None,
+                            distance_m=walk_egress.distance_m,
                             duration_s=walk_egress_s,
                         )
                     )
-
-                total_walk_m = (walk_access.distance_m if walk_access else 0.0) + (
-                    walk_egress.distance_m if walk_egress else 0.0
-                )
-                total_minutes = total_s / 60
+                total_walk_m = state["total_walk_m"] + walk_egress.distance_m
                 score = (
-                    total_minutes * constraints.score_weight_total_minutes
-                    + (total_wait_s / 60) * constraints.score_weight_wait_minutes
+                    (total_s / 60) * constraints.score_weight_total_minutes
+                    + (state["total_wait_s"] / 60) * constraints.score_weight_wait_minutes
                     + total_walk_m * constraints.score_weight_walk_meters
                 )
                 score_breakdown = {
-                    "total_minutes": total_minutes,
-                    "wait_minutes": total_wait_s / 60,
+                    "total_minutes": total_s / 60,
+                    "wait_minutes": state["total_wait_s"] / 60,
                     "walk_meters": total_walk_m,
                     "weight_total_minutes": constraints.score_weight_total_minutes,
                     "weight_wait_minutes": constraints.score_weight_wait_minutes,
                     "weight_walk_meters": constraints.score_weight_walk_meters,
                     "score": score,
                 }
-
                 itineraries.append(
                     ItineraryCandidate(
                         legs=legs,
                         total_duration_s=total_s,
                         total_walk_m=total_walk_m,
-                        total_wait_s=total_wait_s,
-                        total_invehicle_s=total_invehicle_s,
+                        total_wait_s=state["total_wait_s"],
+                        total_invehicle_s=state["total_invehicle_s"],
                         score=score,
                         score_breakdown=score_breakdown,
                     )
                 )
+                debug_traces.append(
+                    f"egress reached stop={stop_id} time={time_min} trips={trips_taken} legs={len(legs)}"
+                )
 
+        # Transfer-walk between nearby stops (different stop_ids)
+        for other_id, dist_m in nearby_stops.get(stop_id, []):
+            walk_s = int(dist_m / settings.default_walk_speed_mps)
+            new_time = time_min + int(round(walk_s / 60))
+            new_legs = list(state["legs"])
+            if walk_s > 0:
+                new_legs.append(
+                    LegCandidate(
+                        mode="transfer",
+                        from_stop_id=stop_id,
+                        to_stop_id=other_id,
+                        distance_m=dist_m,
+                        duration_s=walk_s,
+                    )
+                )
+            states.append(
+                {
+                    "stop_id": other_id,
+                    "time_min": new_time,
+                    "legs": new_legs,
+                    "total_wait_s": state["total_wait_s"],
+                    "total_invehicle_s": state["total_invehicle_s"],
+                    "trips_taken": trips_taken,
+                    "total_walk_m": state["total_walk_m"] + dist_m,
+                }
+            )
+            if len(debug_traces) < 20:
+                debug_traces.append(
+                    f"transfer-walk {stop_id} -> {other_id} ({int(dist_m)}m) time={new_time}"
+                )
+
+        # Board trips from this stop
+        for st in stop_index.get(stop_id, []):
+            depart_min = _parse_time_min(st.departure_time or st.arrival_time)
+            if depart_min is None:
+                continue
+            if depart_min < time_min:
+                continue
+            wait_min = depart_min - time_min
+            if wait_min > constraints.max_wait_minutes:
+                continue
+
+            trip_stops = stops_by_trip.get(st.trip_id, [])
+            if not trip_stops:
+                continue
+
+            for down_st in trip_stops:
+                if down_st.stop_sequence is None or st.stop_sequence is None:
+                    continue
+                if down_st.stop_sequence <= st.stop_sequence:
+                    continue
+                arrive_min = _parse_time_min(down_st.arrival_time or down_st.departure_time)
+                if arrive_min is None or arrive_min <= depart_min:
+                    continue
+                in_vehicle_min = arrive_min - depart_min
+                if in_vehicle_min > constraints.max_invehicle_minutes:
+                    continue
+
+                trip = trip_map.get(st.trip_id)
+                if trip is None:
+                    continue
+
+                new_legs = list(state["legs"])
+                if wait_min > 0 and trips_taken > 0:
+                    new_legs.append(
+                        LegCandidate(
+                            mode="transfer",
+                            from_stop_id=stop_id,
+                            to_stop_id=stop_id,
+                            distance_m=None,
+                            duration_s=wait_min * 60,
+                        )
+                    )
+                new_legs.append(
+                    LegCandidate(
+                        mode="transit",
+                        from_stop_id=st.stop_id,
+                        to_stop_id=down_st.stop_id,
+                        distance_m=None,
+                        duration_s=in_vehicle_min * 60,
+                        route_id=trip.route_id,
+                        trip_id=trip.trip_id,
+                    )
+                )
+                states.append(
+                    {
+                        "stop_id": down_st.stop_id,
+                        "time_min": arrive_min,
+                        "legs": new_legs,
+                        "total_wait_s": state["total_wait_s"] + wait_min * 60,
+                        "total_invehicle_s": state["total_invehicle_s"] + in_vehicle_min * 60,
+                        "trips_taken": trips_taken + 1,
+                        "total_walk_m": state["total_walk_m"],
+                    }
+                )
+                if len(debug_traces) < 20:
+                    debug_traces.append(
+                        f"board trip={st.trip_id} from={st.stop_id} to={down_st.stop_id} dep={depart_min} arr={arrive_min}"
+                    )
+
+    if debug_traces:
+        logger.info("search trace: %s", debug_traces)
     return itineraries
 
 
@@ -530,6 +681,12 @@ def _parse_time_min(value: Optional[str]) -> Optional[int]:
     except ValueError:
         return None
     return hours * 60 + minutes + (1 if seconds >= 30 else 0)
+
+
+def _min_to_time(total_min: int) -> str:
+    hours = total_min // 60
+    minutes = total_min % 60
+    return f"{hours:02d}:{minutes:02d}:00"
 
 
 def get_distance_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -557,3 +714,4 @@ def _cos_deg(deg: float) -> float:
     import math
 
     return math.cos(deg * math.pi / 180)
+logger = get_logger("fixed_line_search")

@@ -16,6 +16,18 @@ curl http://localhost:8000/api/health
 curl "http://localhost:8000/api/autocomplete?query=Memphis"
 ```
 
+## Nearest stops
+
+```bash
+curl -X POST http://localhost:8000/api/nearest-stops \
+  -H "Content-Type: application/json" \
+  -d '{
+    "coordinates": [35.1495, -90.0490],
+    "max_distance_m": 2000,
+    "limit": 5
+  }'
+```
+
 ## Fixed-line (depart_at)
 
 ```bash
@@ -81,3 +93,62 @@ curl -X POST http://localhost:8000/api/reverse-geocode \
     "coordinates": [35.1495, -90.0490]
   }'
 ```
+
+## Long distance Shelby (Memphis) to Stanton (BOC)
+```bash
+curl -X POST http://localhost:8000/api/plan/fixed-line \
+  -H "Content-Type: application/json" \
+  -d '{
+    "origin": [35.1495, -90.0490],
+    "destination": [35.40167589770319, -89.4152679475825],
+    "depart_at_min": 480,
+    "service_date": "20251001",
+    "transfer_limit": 3,
+    "boc_request": true
+  }'
+```
+
+## Long distance Jackson to Stanton
+```bash
+curl -X POST http://localhost:8000/api/plan/fixed-line \
+  -H "Content-Type: application/json" \
+  -d '{
+    "origin": [35.61840705868092, -88.82546943674076],
+    "destination": [35.40167589770319, -89.4152679475825],
+    "depart_at_min": 480,
+    "service_date": "20251001",
+    "transfer_limit": 3,
+    "boc_request": true
+  }'
+```
+
+
+## Long distance Stanton to Jackson (Reverse)
+```bash
+curl -X POST http://localhost:8000/api/plan/fixed-line \
+  -H "Content-Type: application/json" \
+  -d '{
+    "origin": [35.40167589770319, -89.4152679475825],
+    "destination": [35.61840705868092, -88.82546943674076],
+    "depart_at_min": 480,
+    "service_date": "20251001",
+    "transfer_limit": 3,
+    "boc_request": true
+  }'
+```
+
+
+## Long distance Jackson to Stanton
+```bash
+curl -X POST http://localhost:8000/api/plan/fixed-line \
+  -H "Content-Type: application/json" \
+  -d '{
+    "origin": [35.61840705868092, -88.82546943674076],
+    "destination": [35.66060406006281, -88.8409528070227],
+    "depart_at_min": 480,
+    "service_date": "20251001",
+    "transfer_limit": 3,
+    "boc_request": false
+  }'
+```
+
