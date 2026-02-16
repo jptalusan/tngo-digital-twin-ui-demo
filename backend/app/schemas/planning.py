@@ -168,6 +168,7 @@ class Itinerary(BaseModel):
     total_walk_m: float
     total_wait_s: int
     total_invehicle_s: int
+    geometry: Optional[str] = None
     score: ScoreBreakdown
 
 

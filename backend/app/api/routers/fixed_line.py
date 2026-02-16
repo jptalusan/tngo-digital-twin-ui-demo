@@ -40,7 +40,9 @@ def _fill_leg_metrics(
         if stop.lat is not None and stop.lon is not None
     }
 
-    def _coords_for_leg(leg: schemas.Leg) -> tuple[tuple[float, float] | None, tuple[float, float] | None]:
+    def _coords_for_leg(
+        leg: schemas.Leg,
+    ) -> tuple[tuple[float, float] | None, tuple[float, float] | None]:
         if leg.from_stop_id is None and leg.to_stop_id is None:
             return None, None
         if leg.from_stop_id is None and leg.to_stop_id:
@@ -115,6 +117,91 @@ def _fill_leg_metrics(
                 leg.distance_m = round(dist, 2)
             if leg.duration_s is None and dur is not None:
                 leg.duration_s = int(round(dur))
+
+
+def _decode_polyline(polyline: str) -> list[tuple[float, float]]:
+    coords: list[tuple[float, float]] = []
+    index = 0
+    lat = 0
+    lon = 0
+    length = len(polyline)
+    while index < length:
+        shift = 0
+        result = 0
+        while True:
+            if index >= length:
+                break
+            b = ord(polyline[index]) - 63
+            index += 1
+            result |= (b & 0x1F) << shift
+            shift += 5
+            if b < 0x20:
+                break
+        dlat = ~(result >> 1) if (result & 1) else (result >> 1)
+        lat += dlat
+
+        shift = 0
+        result = 0
+        while True:
+            if index >= length:
+                break
+            b = ord(polyline[index]) - 63
+            index += 1
+            result |= (b & 0x1F) << shift
+            shift += 5
+            if b < 0x20:
+                break
+        dlon = ~(result >> 1) if (result & 1) else (result >> 1)
+        lon += dlon
+
+        coords.append((lat / 1e5, lon / 1e5))
+    return coords
+
+
+def _encode_polyline(coords: list[tuple[float, float]]) -> str:
+    def _encode_value(value: int) -> str:
+        value = ~(value << 1) if value < 0 else (value << 1)
+        chunks = []
+        while value >= 0x20:
+            chunks.append(chr((0x20 | (value & 0x1F)) + 63))
+            value >>= 5
+        chunks.append(chr(value + 63))
+        return "".join(chunks)
+
+    result = []
+    last_lat = 0
+    last_lon = 0
+    for lat, lon in coords:
+        ilat = int(round(lat * 1e5))
+        ilon = int(round(lon * 1e5))
+        result.append(_encode_value(ilat - last_lat))
+        result.append(_encode_value(ilon - last_lon))
+        last_lat = ilat
+        last_lon = ilon
+    return "".join(result)
+
+
+def _aggregate_geometry(legs: list[schemas.Leg]) -> Optional[str]:
+    merged: list[tuple[float, float]] = []
+    for leg in legs:
+        if not leg.geometry:
+            continue
+        try:
+            points = _decode_polyline(leg.geometry)
+        except Exception:
+            continue
+        if not points:
+            continue
+        if not merged:
+            merged.extend(points)
+            continue
+        if merged[-1] == points[0]:
+            merged.extend(points[1:])
+        else:
+            merged.extend(points)
+    if not merged:
+        return None
+    return _encode_polyline(merged)
 
 
 @router.post(
@@ -228,17 +315,23 @@ def plan_fixed_line(
             for leg in first.legs
         ]
 
-        legs.append(
-            schemas.Leg(
-                mode="transit",
-                from_stop_id=ingress.stop_id,
-                to_stop_id=egress.stop_id,
-                distance_m=None,
-                duration_s=None,
-                route_id="BOC_BRT",
-                trip_id=None,
-            )
+        _fill_leg_metrics(
+            session,
+            payload.origin,
+            [ingress.lat or payload.origin[0], ingress.lon or payload.origin[1]],
+            legs,
         )
+
+        brt_leg = schemas.Leg(
+            mode="transit",
+            from_stop_id=ingress.stop_id,
+            to_stop_id=egress.stop_id,
+            distance_m=None,
+            duration_s=None,
+            route_id="BOC_BRT",
+            trip_id=None,
+        )
+        legs.append(brt_leg)
 
         walk_m = get_distance_m(
             egress.lat or payload.destination[0],
@@ -247,18 +340,21 @@ def plan_fixed_line(
             payload.destination[1],
         )
         walk_s = int(walk_m / settings.default_walk_speed_mps)
+        walk_leg = None
         if walk_s > 0:
-            legs.append(
-                schemas.Leg(
-                    mode="walk",
-                    from_stop_id=egress.stop_id,
-                    to_stop_id=None,
-                    distance_m=round(walk_m, 2),
-                    duration_s=walk_s,
-                )
+            walk_leg = schemas.Leg(
+                mode="walk",
+                from_stop_id=egress.stop_id,
+                to_stop_id=None,
+                distance_m=round(walk_m, 2),
+                duration_s=walk_s,
             )
+            legs.append(walk_leg)
 
-        _fill_leg_metrics(session, payload.origin, payload.destination, legs)
+        leg_subset = [brt_leg]
+        if walk_leg is not None:
+            leg_subset.append(walk_leg)
+        _fill_leg_metrics(session, payload.origin, payload.destination, leg_subset)
         total_walk_m = first.total_walk_m + walk_m
         total_duration_s = first.total_duration_s + walk_s
         score = schemas.ScoreBreakdown(
@@ -282,6 +378,7 @@ def plan_fixed_line(
             total_walk_m=total_walk_m,
             total_wait_s=first.total_wait_s,
             total_invehicle_s=first.total_invehicle_s,
+            geometry=_aggregate_geometry(legs),
             score=score,
         )
 
@@ -326,6 +423,7 @@ def plan_fixed_line(
                 total_walk_m=candidate.total_walk_m,
                 total_wait_s=candidate.total_wait_s,
                 total_invehicle_s=candidate.total_invehicle_s,
+                geometry=_aggregate_geometry(legs),
                 score=schemas.ScoreBreakdown(
                     total_minutes=round(candidate.score_breakdown["total_minutes"], 4),
                     wait_minutes=round(candidate.score_breakdown["wait_minutes"], 4),
