@@ -5,7 +5,7 @@ from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.gtfs import Agency, Calendar, CalendarDate, Stop, StopTime, Trip
+from app.models.gtfs import Agency, Calendar, CalendarDate, ShapePoint, Stop, StopTime, Trip
 
 
 def select_stops_by_name(query: str):
@@ -97,6 +97,21 @@ def load_trips_for_ids(session: Session, trip_ids: set[str]) -> list[Trip]:
     if not trip_ids:
         return []
     return session.execute(select(Trip).where(Trip.trip_id.in_(trip_ids))).scalars().all()
+
+
+def load_shape_points_for_trip(session: Session, trip_id: str) -> list[ShapePoint]:
+    trip = session.execute(select(Trip).where(Trip.trip_id == trip_id)).scalars().first()
+    if trip is None or not trip.shape_id:
+        return []
+    return (
+        session.execute(
+            select(ShapePoint)
+            .where(ShapePoint.shape_id == trip.shape_id)
+            .order_by(ShapePoint.sequence)
+        )
+        .scalars()
+        .all()
+    )
 
 
 def load_stops_by_ids(session: Session, stop_ids: set[str]) -> list[Stop]:

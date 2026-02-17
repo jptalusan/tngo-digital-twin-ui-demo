@@ -34,11 +34,15 @@ curl -X POST http://localhost:8000/api/nearest-stops \
 curl -X POST http://localhost:8000/api/plan/fixed-line \
   -H "Content-Type: application/json" \
   -d '{
-    "origin": [35.1495, -90.0490],
-    "destination": [35.1505, -90.0480],
+    "origin": [35.10207407719635, -90.03855626703466],
+    "destination": [35.15419142334027, -89.9346853715579],
     "depart_at_min": 480,
     "service_date": "20250101",
-    "transfer_limit": 1
+    "transfer_limit": 3,
+    "max_walk_meters": 2000,
+    "max_wait_minutes": 60,
+    "max_invehicle_minutes": 180,
+    "max_total_minutes": 240
   }'
 ```
 
@@ -48,9 +52,10 @@ curl -X POST http://localhost:8000/api/plan/fixed-line \
 curl -X POST http://localhost:8000/api/plan/fixed-line \
   -H "Content-Type: application/json" \
   -d '{
-    "origin": [35.1495, -90.0490],
-    "destination": [35.1505, -90.0480],
+    "origin": [35.10207407719635, -90.03855626703466],
+    "destination": [35.15419142334027, -89.9346853715579],
     "arrive_by_min": 540,
+    "transfer_limit": 3,
     "service_date": "20250101"
   }'
 ```
@@ -62,8 +67,8 @@ Call twice to see the active route update with the new request insertion.
 curl -X POST http://localhost:8000/api/plan/on-demand \
   -H "Content-Type: application/json" \
   -d '{
-    "origin": [35.1495, -90.0490],
-    "destination": [35.1550, -90.0600],
+    "origin": [35.10207407719635, -90.03855626703466],
+    "destination": [35.15419142334027, -89.9346853715579],
     "pickup_window_start_min": 480,
     "pickup_window_end_min": 520,
     "dropoff_window_end_min": 600,
@@ -90,7 +95,7 @@ curl -X POST http://localhost:8000/api/plan/on-demand \
   -H "Content-Type: application/json" \
   -d '{
     "origin": [35.05824679207186, -90.07969506176909],
-    "destination": [35.05824679207186, -90.07969506176909],
+    "destination": [35.08693080695092, -90.06654279675395],
     "pickup_window_start_min": 340,
     "pickup_window_end_min": 540,
     "dropoff_window_end_min": 760,
@@ -130,17 +135,30 @@ curl -X POST http://localhost:8000/api/on-demand/manifest \
   }'
 ```
 
+## Private vehicle (point-to-point)
+```bash
+curl -X POST http://localhost:8000/api/plan/private-vehicle \
+  -H "Content-Type: application/json" \
+  -d '{
+    "origin": [35.10207407719635, -90.03855626703466],
+    "destination": [35.15419142334027, -89.9346853715579]
+  }'
+```
+
 ## Multimodal (compare fixed-line, on-demand, multimodal)
 
 ```bash
 curl -X POST http://localhost:8000/api/plan/multimodal \
   -H "Content-Type: application/json" \
   -d '{
-    "origin": [35.1495, -90.0490],
-    "destination": [35.1505, -90.0480],
+    "origin": [35.10207407719635, -90.03855626703466],
+    "destination": [35.15419142334027, -89.9346853715579],
     "depart_at_min": 480,
+    "pickup_window_start_min": 380,
+    "pickup_window_end_min": 520,
+    "dropoff_window_end_min": 1000,
     "service_date": "20250101",
-    "transfer_limit": 1
+    "transfer_limit": 5
   }'
 ```
 

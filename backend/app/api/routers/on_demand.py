@@ -65,6 +65,23 @@ def plan_on_demand(
             total_duration_s=0,
             total_wait_s=0,
             total_invehicle_s=0,
+            total_walk_m=0.0,
+            total_transit_distance_m=0.0,
+            total_vehicle_distance_m=0.0,
+            itineraries=[
+                schemas.Itinerary(
+                    itinerary_id="ondemand-1",
+                    legs=[],
+                    total_duration_s=0,
+                    total_walk_m=0.0,
+                    total_wait_s=0,
+                    total_invehicle_s=0,
+                    total_transit_distance_m=0.0,
+                    total_vehicle_distance_m=0.0,
+                    geometry=None,
+                    score=score,
+                )
+            ],
             score=score,
             note="No feasible vehicle found for the requested windows.",
         )
@@ -111,6 +128,10 @@ def plan_on_demand(
         ),
     )
 
+    distance_m, duration_s, geometry = ondemand_service.estimate_direct_leg(
+        payload.origin[0], payload.origin[1], payload.destination[0], payload.destination[1]
+    )
+
     return schemas.OnDemandResponse(
         vehicle_id=result.vehicle_id,
         eta_minutes=result.eta_minutes,
@@ -118,8 +139,105 @@ def plan_on_demand(
         total_duration_s=total_duration_s,
         total_wait_s=total_wait_s,
         total_invehicle_s=total_invehicle_s,
+        total_walk_m=0.0,
+        total_transit_distance_m=round(distance_m, 2),
+        total_vehicle_distance_m=round(distance_m, 2),
+        itineraries=[
+            schemas.Itinerary(
+                itinerary_id="ondemand-1",
+                legs=[
+                    schemas.Leg(
+                        mode="on-demand",
+                        from_stop_id=None,
+                        to_stop_id=None,
+                        distance_m=round(distance_m, 2),
+                        duration_s=duration_s,
+                        geometry=geometry,
+                        route_id=None,
+                        trip_id=None,
+                    )
+                ],
+                total_duration_s=total_duration_s,
+                total_walk_m=0.0,
+                total_wait_s=total_wait_s,
+                total_invehicle_s=total_invehicle_s,
+                total_transit_distance_m=round(distance_m, 2),
+                total_vehicle_distance_m=round(distance_m, 2),
+                geometry=geometry,
+                score=score,
+            )
+        ],
         score=score,
         note=result.note,
+    )
+
+
+@router.post(
+    "/plan/private-vehicle",
+    response_model=schemas.PrivateVehicleResponse,
+    summary="Plan private vehicle trip",
+    description="Return a point-to-point private vehicle itinerary using OSRM routing.",
+)
+def plan_private_vehicle(
+    payload: schemas.PrivateVehicleRequest,
+    session: Session = Depends(get_session),
+) -> schemas.PrivateVehicleResponse:
+    weight_total = payload.score_weight_total_minutes or settings.score_weight_total_minutes
+    weight_wait = payload.score_weight_wait_minutes or settings.score_weight_wait_minutes
+    weight_walk = payload.score_weight_walk_meters or settings.score_weight_walk_meters
+
+    distance_m, duration_s, geometry = ondemand_service.estimate_direct_leg(
+        payload.origin[0],
+        payload.origin[1],
+        payload.destination[0],
+        payload.destination[1],
+    )
+
+    score = schemas.ScoreBreakdown(
+        total_minutes=round(duration_s / 60, 4),
+        wait_minutes=0.0,
+        walk_meters=0.0,
+        weight_total_minutes=weight_total,
+        weight_wait_minutes=weight_wait,
+        weight_walk_meters=weight_walk,
+        score=round((duration_s / 60) * weight_total, 4),
+    )
+
+    itinerary = schemas.Itinerary(
+        itinerary_id="private-1",
+        legs=[
+            schemas.Leg(
+                mode="private",
+                from_stop_id=None,
+                to_stop_id=None,
+                distance_m=round(distance_m, 2),
+                duration_s=duration_s,
+                geometry=geometry,
+                route_id=None,
+                trip_id=None,
+            )
+        ],
+        total_duration_s=duration_s,
+        total_walk_m=0.0,
+        total_wait_s=0,
+        total_invehicle_s=duration_s,
+        total_transit_distance_m=round(distance_m, 2),
+        total_vehicle_distance_m=round(distance_m, 2),
+        geometry=geometry,
+        score=score,
+    )
+
+    return schemas.PrivateVehicleResponse(
+        best_itinerary=itinerary.itinerary_id,
+        total_duration_s=itinerary.total_duration_s,
+        total_wait_s=itinerary.total_wait_s,
+        total_invehicle_s=itinerary.total_invehicle_s,
+        total_walk_m=itinerary.total_walk_m,
+        total_transit_distance_m=round(distance_m, 2),
+        total_vehicle_distance_m=round(distance_m, 2),
+        score=score,
+        itineraries=[itinerary],
+        note="Private vehicle OSRM route.",
     )
 
 

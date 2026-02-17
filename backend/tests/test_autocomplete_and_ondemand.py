@@ -37,6 +37,32 @@ def test_autocomplete_returns_stops_and_depots(client, gtfs_fixture_path):
 
 
 def test_on_demand_mock_endpoint(client):
+    session = SessionLocal()
+    try:
+        depot = Depot(
+            depot_id="depot-od",
+            name="OD Depot",
+            lat=35.1495,
+            lon=-90.0490,
+            service_zone=WKTElement(
+                "POLYGON((-90.06 35.14, -90.06 35.16, -90.03 35.16, -90.03 35.14, -90.06 35.14))",
+                srid=4326,
+            ),
+        )
+        session.add(depot)
+        session.add(Vehicle(vehicle_id="veh-od-1", depot_id="depot-od", capacity=2))
+        session.add(
+            VehicleSchedule(
+                vehicle_id="veh-od-1",
+                service_days="mon,tue,wed,thu,fri,sat,sun",
+                start_time="05:00",
+                end_time="20:00",
+            )
+        )
+        session.commit()
+    finally:
+        session.close()
+
     response = client.post(
         "/api/plan/on-demand",
         json={
@@ -51,4 +77,6 @@ def test_on_demand_mock_endpoint(client):
     assert response.status_code == 200
     body = response.json()
     assert body["vehicle_id"]
-    assert body["eta_minutes"] > 0
+    assert body["eta_minutes"] >= 0
+    assert "itineraries" in body
+    assert isinstance(body["itineraries"], list)

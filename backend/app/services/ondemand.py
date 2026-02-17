@@ -117,6 +117,29 @@ def build_osrm_leg_geometry(
     )
 
 
+def estimate_direct_leg(
+    origin_lat: float,
+    origin_lon: float,
+    destination_lat: float,
+    destination_lon: float,
+) -> tuple[float, int, Optional[str]]:
+    geometry = None
+    distance_m = _travel_distance_m(origin_lat, origin_lon, destination_lat, destination_lon)
+    duration_s = int(round(_travel_time_min(origin_lat, origin_lon, destination_lat, destination_lon) * 60))
+    if settings.enable_osrm:
+        geom, dist, dur = build_osrm_leg_geometry(
+            StopEvent(origin_lat, origin_lon, TimeWindow(0, 0), 0),
+            StopEvent(destination_lat, destination_lon, TimeWindow(0, 0), 0),
+        )
+        if geom:
+            geometry = geom
+        if dist is not None:
+            distance_m = float(dist)
+        if dur is not None:
+            duration_s = int(round(float(dur)))
+    return distance_m, duration_s, geometry
+
+
 def _default_speed_kmph() -> float:
     return float(getattr(settings, "default_on_demand_speed_kmph", 30.0))
 

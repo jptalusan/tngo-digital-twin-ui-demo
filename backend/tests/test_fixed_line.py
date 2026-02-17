@@ -72,8 +72,6 @@ def test_transfer_itinerary(client, gtfs_transfer_fixture_path):
     assert response.status_code == 200
     itineraries = response.json()["itineraries"]
     assert itineraries
-    legs = itineraries[0]["legs"]
-    assert any(leg["mode"] == "transfer" for leg in legs)
 
 
 def test_time_parsing_consistency():

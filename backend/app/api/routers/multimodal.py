@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import Literal
-
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -9,28 +7,17 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.db import get_session
 from app.schemas import planning as schemas
-from pydantic import BaseModel
 from app.services import planning as planning_service
 from app.services import ondemand as ondemand_service
 from app.crud import ondemand as ondemand_crud
 from app.crud import gtfs as gtfs_crud
 from app.models.gtfs import Stop
 from app.logging.config import get_logger
+from app.services.leg_geometry import fill_leg_metrics, aggregate_geometry
 
 logger = get_logger("multimodal")
 
 router = APIRouter(tags=["multimodal"])
-
-
-class MultimodalResult(BaseModel):
-    label: Literal[
-        "fixed-line",
-        "on-demand",
-        "on-demand->fixed-line->walk",
-        "walk->fixed-line->on-demand",
-        "on-demand->fixed-line->on-demand",
-    ]
-    itinerary: schemas.Itinerary
 
 
 def _build_fixed_line(
@@ -97,36 +84,42 @@ def _build_fixed_line(
     )
 
     candidates = planning_service.build_fixed_line_itineraries(session, inputs)
-    return [
-        schemas.Itinerary(
-            legs=[
-                schemas.Leg(
-                    mode=leg.mode,
-                    from_stop_id=leg.from_stop_id,
-                    to_stop_id=leg.to_stop_id,
-                    distance_m=leg.distance_m,
-                    duration_s=leg.duration_s,
-                    route_id=leg.route_id,
-                    trip_id=leg.trip_id,
-                )
-                for leg in candidate.legs
-            ],
-            total_duration_s=candidate.total_duration_s,
-            total_walk_m=candidate.total_walk_m,
-            total_wait_s=candidate.total_wait_s,
-            total_invehicle_s=candidate.total_invehicle_s,
-            score=schemas.ScoreBreakdown(
-                total_minutes=round(candidate.score_breakdown["total_minutes"], 4),
-                wait_minutes=round(candidate.score_breakdown["wait_minutes"], 4),
-                walk_meters=round(candidate.score_breakdown["walk_meters"], 2),
-                weight_total_minutes=candidate.score_breakdown["weight_total_minutes"],
-                weight_wait_minutes=candidate.score_breakdown["weight_wait_minutes"],
-                weight_walk_meters=candidate.score_breakdown["weight_walk_meters"],
-                score=round(candidate.score_breakdown["score"], 4),
-            ),
+    itineraries: list[schemas.Itinerary] = []
+    for idx, candidate in enumerate(candidates, start=1):
+        legs = [
+            schemas.Leg(
+                mode=leg.mode,
+                from_stop_id=leg.from_stop_id,
+                to_stop_id=leg.to_stop_id,
+                distance_m=leg.distance_m,
+                duration_s=leg.duration_s,
+                route_id=leg.route_id,
+                trip_id=leg.trip_id,
+            )
+            for leg in candidate.legs
+        ]
+        fill_leg_metrics(session, payload.origin, payload.destination, legs)
+        itineraries.append(
+            schemas.Itinerary(
+                itinerary_id=f"fixed-{idx}",
+                legs=legs,
+                total_duration_s=candidate.total_duration_s,
+                total_walk_m=candidate.total_walk_m,
+                total_wait_s=candidate.total_wait_s,
+                total_invehicle_s=candidate.total_invehicle_s,
+                geometry=aggregate_geometry(legs),
+                score=schemas.ScoreBreakdown(
+                    total_minutes=round(candidate.score_breakdown["total_minutes"], 4),
+                    wait_minutes=round(candidate.score_breakdown["wait_minutes"], 4),
+                    walk_meters=round(candidate.score_breakdown["walk_meters"], 2),
+                    weight_total_minutes=candidate.score_breakdown["weight_total_minutes"],
+                    weight_wait_minutes=candidate.score_breakdown["weight_wait_minutes"],
+                    weight_walk_meters=candidate.score_breakdown["weight_walk_meters"],
+                    score=round(candidate.score_breakdown["score"], 4),
+                ),
+            )
         )
-        for candidate in candidates
-    ]
+    return itineraries
 
 
 def _build_on_demand_leg(
@@ -153,12 +146,16 @@ def _build_on_demand_leg(
     if result is None:
         return None
 
+    distance_m, duration_s, geometry = ondemand_service.estimate_direct_leg(
+        origin[0], origin[1], destination[0], destination[1]
+    )
     return schemas.Leg(
         mode="on-demand",
         from_stop_id=None,
         to_stop_id=None,
-        distance_m=result.distance_km * 1000,
-        duration_s=result.eta_minutes * 60,
+        distance_m=round(distance_m, 2),
+        duration_s=duration_s,
+        geometry=geometry,
     )
 
 
@@ -166,6 +163,9 @@ def _combine(
     access: schemas.Leg | None,
     fixed: schemas.Itinerary,
     egress: schemas.Leg | None,
+    weight_total: float,
+    weight_wait: float,
+    weight_walk: float,
 ) -> schemas.Itinerary:
     legs = []
     total_walk = fixed.total_walk_m
@@ -176,34 +176,107 @@ def _combine(
     if access:
         legs.append(access)
         total_duration += access.duration_s or 0
+        total_invehicle += access.duration_s or 0
     legs.extend(fixed.legs)
     if egress:
         legs.append(egress)
         total_duration += egress.duration_s or 0
+        total_invehicle += egress.duration_s or 0
 
     score = schemas.ScoreBreakdown(
         total_minutes=round(total_duration / 60, 4),
         wait_minutes=round(total_wait / 60, 4),
         walk_meters=round(total_walk, 2),
-        weight_total_minutes=1.0,
-        weight_wait_minutes=0.0,
-        weight_walk_meters=0.0,
-        score=round(total_duration / 60, 4),
+        weight_total_minutes=weight_total,
+        weight_wait_minutes=weight_wait,
+        weight_walk_meters=weight_walk,
+        score=round(
+            (total_duration / 60) * weight_total
+            + (total_wait / 60) * weight_wait
+            + total_walk * weight_walk,
+            4,
+        ),
     )
 
     return schemas.Itinerary(
+        itinerary_id="combined",
         legs=legs,
         total_duration_s=total_duration,
         total_walk_m=total_walk,
         total_wait_s=total_wait,
         total_invehicle_s=total_invehicle,
+        geometry=aggregate_geometry(legs),
         score=score,
     )
 
 
+def _metrics_for_legs(
+    legs: list[schemas.Leg],
+    weight_total: float,
+    weight_wait: float,
+    weight_walk: float,
+) -> schemas.ItineraryMetrics:
+    total_duration = sum(leg.duration_s or 0 for leg in legs)
+    total_walk_m = sum(
+        leg.distance_m or 0
+        for leg in legs
+        if leg.mode == "walk"
+    )
+    total_transit_distance_m = sum(
+        leg.distance_m or 0
+        for leg in legs
+        if leg.mode in ("transit", "transfer", "on-demand", "private")
+    )
+    total_vehicle_distance_m = sum(
+        leg.distance_m or 0
+        for leg in legs
+        if leg.mode in ("transit", "transfer", "on-demand", "private")
+    )
+    total_wait_s = sum(leg.duration_s or 0 for leg in legs if leg.mode == "transfer")
+    total_invehicle_s = sum(
+        leg.duration_s or 0 for leg in legs if leg.mode not in ("walk", "transfer")
+    )
+    score = schemas.ScoreBreakdown(
+        total_minutes=round(total_duration / 60, 4),
+        wait_minutes=round(total_wait_s / 60, 4),
+        walk_meters=round(total_walk_m, 2),
+        weight_total_minutes=weight_total,
+        weight_wait_minutes=weight_wait,
+        weight_walk_meters=weight_walk,
+        score=round(
+            (total_duration / 60) * weight_total
+            + (total_wait_s / 60) * weight_wait
+            + total_walk_m * weight_walk,
+            4,
+        ),
+    )
+    return schemas.ItineraryMetrics(
+        total_duration_s=total_duration,
+        total_wait_s=total_wait_s,
+        total_invehicle_s=total_invehicle_s,
+        total_walk_m=round(total_walk_m, 2),
+        total_transit_distance_m=round(total_transit_distance_m, 2),
+        total_vehicle_distance_m=round(total_vehicle_distance_m, 2),
+        score=score,
+    )
+
+
+def _metrics_for_modes(
+    legs: list[schemas.Leg],
+    include_on_demand: bool,
+    weight_total: float,
+    weight_wait: float,
+    weight_walk: float,
+) -> schemas.ItineraryMetrics:
+    selected = [
+        leg for leg in legs if (leg.mode == "on-demand") == include_on_demand
+    ]
+    return _metrics_for_legs(selected, weight_total, weight_wait, weight_walk)
+
+
 @router.post(
     "/plan/multimodal",
-    response_model=list[MultimodalResult],
+    response_model=schemas.MultimodalResponse,
     summary="Plan multimodal options",
     description="Return fixed-line, on-demand, and multimodal combinations for the same OD request.",
 )
@@ -218,12 +291,12 @@ def plan_multimodal(
     dropoff_end = pickup_start + 90
 
     fixed_itineraries = _build_fixed_line(session, payload)
-    results: list[MultimodalResult] = []
+    results: list[schemas.MultimodalItinerary] = []
+    itinerary_counter = 1
 
-    if fixed_itineraries:
-        results.append(
-            MultimodalResult(label="fixed-line", itinerary=fixed_itineraries[0])
-        )
+    weight_total = payload.score_weight_total_minutes or settings.score_weight_total_minutes
+    weight_wait = payload.score_weight_wait_minutes or settings.score_weight_wait_minutes
+    weight_walk = payload.score_weight_walk_meters or settings.score_weight_walk_meters
 
     ondemand_leg = _build_on_demand_leg(
         session,
@@ -236,22 +309,46 @@ def plan_multimodal(
     )
     if ondemand_leg:
         only_ondemand = schemas.Itinerary(
+            itinerary_id="ondemand-only",
             legs=[ondemand_leg],
             total_duration_s=ondemand_leg.duration_s or 0,
             total_walk_m=0.0,
             total_wait_s=0,
             total_invehicle_s=ondemand_leg.duration_s or 0,
+            total_transit_distance_m=round(ondemand_leg.distance_m or 0, 2),
+            total_vehicle_distance_m=round(ondemand_leg.distance_m or 0, 2),
+            geometry=aggregate_geometry([ondemand_leg]),
             score=schemas.ScoreBreakdown(
                 total_minutes=round((ondemand_leg.duration_s or 0) / 60, 4),
                 wait_minutes=0.0,
                 walk_meters=0.0,
-                weight_total_minutes=1.0,
-                weight_wait_minutes=0.0,
-                weight_walk_meters=0.0,
-                score=round((ondemand_leg.duration_s or 0) / 60, 4),
+                weight_total_minutes=weight_total,
+                weight_wait_minutes=weight_wait,
+                weight_walk_meters=weight_walk,
+                score=round(
+                    ((ondemand_leg.duration_s or 0) / 60) * weight_total,
+                    4,
+                ),
             ),
         )
-        results.append(MultimodalResult(label="on-demand", itinerary=only_ondemand))
+        results.append(
+            schemas.MultimodalItinerary(
+                itinerary_id=f"multi-{itinerary_counter}",
+                legs=only_ondemand.legs,
+                metrics=schemas.MultimodalMetrics(
+                    overall=_metrics_for_legs(
+                        only_ondemand.legs, weight_total, weight_wait, weight_walk
+                    ),
+                    on_demand=_metrics_for_modes(
+                        only_ondemand.legs, True, weight_total, weight_wait, weight_walk
+                    ),
+                    fixed_line=_metrics_for_modes(
+                        only_ondemand.legs, False, weight_total, weight_wait, weight_walk
+                    ),
+                ),
+            )
+        )
+        itinerary_counter += 1
 
     if fixed_itineraries:
         base = fixed_itineraries[0]
@@ -293,19 +390,81 @@ def plan_multimodal(
                         dropoff_end=dropoff_end,
                     )
 
-        combined = _combine(access_leg, base, None)
+        combined = _combine(access_leg, base, None, weight_total, weight_wait, weight_walk)
         results.append(
-            MultimodalResult(label="on-demand->fixed-line->walk", itinerary=combined)
+            schemas.MultimodalItinerary(
+                itinerary_id=f"multi-{itinerary_counter}",
+                legs=combined.legs,
+                metrics=schemas.MultimodalMetrics(
+                    overall=_metrics_for_legs(
+                        combined.legs, weight_total, weight_wait, weight_walk
+                    ),
+                    on_demand=_metrics_for_modes(
+                        combined.legs, True, weight_total, weight_wait, weight_walk
+                    ),
+                    fixed_line=_metrics_for_modes(
+                        combined.legs, False, weight_total, weight_wait, weight_walk
+                    ),
+                ),
+            )
         )
+        itinerary_counter += 1
 
-        combined = _combine(None, base, egress_leg)
+        combined = _combine(None, base, egress_leg, weight_total, weight_wait, weight_walk)
         results.append(
-            MultimodalResult(label="walk->fixed-line->on-demand", itinerary=combined)
+            schemas.MultimodalItinerary(
+                itinerary_id=f"multi-{itinerary_counter}",
+                legs=combined.legs,
+                metrics=schemas.MultimodalMetrics(
+                    overall=_metrics_for_legs(
+                        combined.legs, weight_total, weight_wait, weight_walk
+                    ),
+                    on_demand=_metrics_for_modes(
+                        combined.legs, True, weight_total, weight_wait, weight_walk
+                    ),
+                    fixed_line=_metrics_for_modes(
+                        combined.legs, False, weight_total, weight_wait, weight_walk
+                    ),
+                ),
+            )
         )
+        itinerary_counter += 1
 
-        combined = _combine(access_leg, base, egress_leg)
+        combined = _combine(access_leg, base, egress_leg, weight_total, weight_wait, weight_walk)
         results.append(
-            MultimodalResult(label="on-demand->fixed-line->on-demand", itinerary=combined)
+            schemas.MultimodalItinerary(
+                itinerary_id=f"multi-{itinerary_counter}",
+                legs=combined.legs,
+                metrics=schemas.MultimodalMetrics(
+                    overall=_metrics_for_legs(
+                        combined.legs, weight_total, weight_wait, weight_walk
+                    ),
+                    on_demand=_metrics_for_modes(
+                        combined.legs, True, weight_total, weight_wait, weight_walk
+                    ),
+                    fixed_line=_metrics_for_modes(
+                        combined.legs, False, weight_total, weight_wait, weight_walk
+                    ),
+                ),
+            )
         )
+        itinerary_counter += 1
 
-    return results
+    best = (
+        min(results, key=lambda item: item.metrics.overall.score.score)
+        if results
+        else None
+    )
+    best_overall = best.metrics.overall if best else None
+    return schemas.MultimodalResponse(
+        best_itinerary=best.itinerary_id if best else None,
+        total_duration_s=best_overall.total_duration_s if best_overall else None,
+        total_wait_s=best_overall.total_wait_s if best_overall else None,
+        total_invehicle_s=best_overall.total_invehicle_s if best_overall else None,
+        total_walk_m=best_overall.total_walk_m if best_overall else None,
+        total_transit_distance_m=best_overall.total_transit_distance_m if best_overall else None,
+        total_vehicle_distance_m=best_overall.total_vehicle_distance_m if best_overall else None,
+        score=best_overall.score if best_overall else None,
+        itineraries=results,
+        note="Multimodal itineraries with per-segment metrics.",
+    )

@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 os.environ["USE_TEST_DB"] = "true"
+os.environ["ENABLE_OSRM"] = "false"
 
 from app.core.config import settings
 from app.db import init_db, SessionLocal, engine
