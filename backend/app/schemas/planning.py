@@ -132,6 +132,14 @@ class FixedLineRequest(BaseModel):
         default=False,
         description="If true, use BOC manual pipeline: origin -> BOC ingress -> BOC egress -> walk.",
     )
+    multimodal_limit: Optional[int] = Field(
+        default=None,
+        description="Maximum number of fixed-line itineraries to combine in multimodal planning.",
+    )
+    force_taxi: Optional[bool] = Field(
+        default=False,
+        description="If true, multimodal uses direct taxi legs instead of on-demand insertion.",
+    )
 
 
 class BaseLeg(BaseModel):
@@ -163,17 +171,28 @@ class ScoreBreakdown(BaseModel):
 
 class Itinerary(BaseModel):
     """An ordered set of legs with aggregate metrics."""
+    itinerary_id: str
     legs: List[Leg]
     total_duration_s: int
     total_walk_m: float
     total_wait_s: int
     total_invehicle_s: int
+    total_transit_distance_m: float = 0.0
+    total_vehicle_distance_m: float = 0.0
     geometry: Optional[str] = None
     score: ScoreBreakdown
 
 
 class FixedLineResponse(BaseModel):
     """Fixed-line planning response."""
+    best_itinerary: Optional[str] = None
+    total_duration_s: Optional[int] = None
+    total_wait_s: Optional[int] = None
+    total_invehicle_s: Optional[int] = None
+    total_walk_m: Optional[float] = None
+    total_transit_distance_m: Optional[float] = None
+    total_vehicle_distance_m: Optional[float] = None
+    score: Optional[ScoreBreakdown] = None
     itineraries: List[Itinerary]
     note: str
 
@@ -201,7 +220,75 @@ class OnDemandResponse(BaseModel):
     total_duration_s: int
     total_wait_s: int
     total_invehicle_s: int
+    total_walk_m: float
+    total_transit_distance_m: float
+    total_vehicle_distance_m: float
+    itineraries: List[Itinerary]
     score: ScoreBreakdown
+    note: str
+
+
+class ItineraryMetrics(BaseModel):
+    """Aggregate metrics for a set of legs."""
+    total_duration_s: int
+    total_wait_s: int
+    total_invehicle_s: int
+    total_walk_m: float
+    total_transit_distance_m: float
+    total_vehicle_distance_m: float
+    score: ScoreBreakdown
+
+
+class MultimodalMetrics(BaseModel):
+    """Overall + segment metrics for multimodal itineraries."""
+    overall: ItineraryMetrics
+    on_demand: ItineraryMetrics
+    fixed_line: ItineraryMetrics
+
+
+class MultimodalItinerary(BaseModel):
+    """Multimodal itinerary with metrics breakdown."""
+    itinerary_id: str
+    legs: List[Leg]
+    metrics: MultimodalMetrics
+
+
+class MultimodalResponse(BaseModel):
+    """Multimodal response containing ranked itineraries."""
+    best_itinerary: Optional[str] = None
+    total_duration_s: Optional[int] = None
+    total_wait_s: Optional[int] = None
+    total_invehicle_s: Optional[int] = None
+    total_walk_m: Optional[float] = None
+    total_transit_distance_m: Optional[float] = None
+    total_vehicle_distance_m: Optional[float] = None
+    score: Optional[ScoreBreakdown] = None
+    itineraries: List[MultimodalItinerary]
+    note: str
+
+
+class PrivateVehicleRequest(BaseModel):
+    """Request for private vehicle point-to-point routing."""
+    origin: List[float] = Field(min_length=2, max_length=2, description="Origin [lat, lon].")
+    destination: List[float] = Field(
+        min_length=2, max_length=2, description="Destination [lat, lon]."
+    )
+    score_weight_total_minutes: Optional[float] = None
+    score_weight_wait_minutes: Optional[float] = None
+    score_weight_walk_meters: Optional[float] = None
+
+
+class PrivateVehicleResponse(BaseModel):
+    """Private vehicle routing response matching itinerary signature."""
+    best_itinerary: Optional[str] = None
+    total_duration_s: Optional[int] = None
+    total_wait_s: Optional[int] = None
+    total_invehicle_s: Optional[int] = None
+    total_walk_m: Optional[float] = None
+    total_transit_distance_m: Optional[float] = None
+    total_vehicle_distance_m: Optional[float] = None
+    score: Optional[ScoreBreakdown] = None
+    itineraries: List[Itinerary]
     note: str
 
 

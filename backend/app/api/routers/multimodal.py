@@ -159,6 +159,23 @@ def _build_on_demand_leg(
     )
 
 
+def _build_taxi_leg(
+    origin: list[float],
+    destination: list[float],
+) -> schemas.Leg:
+    distance_m, duration_s, geometry = ondemand_service.estimate_direct_leg(
+        origin[0], origin[1], destination[0], destination[1]
+    )
+    return schemas.Leg(
+        mode="on-demand",
+        from_stop_id=None,
+        to_stop_id=None,
+        distance_m=round(distance_m, 2),
+        duration_s=duration_s,
+        geometry=geometry,
+    )
+
+
 def _combine(
     access: schemas.Leg | None,
     fixed: schemas.Itinerary,
@@ -298,15 +315,19 @@ def plan_multimodal(
     weight_wait = payload.score_weight_wait_minutes or settings.score_weight_wait_minutes
     weight_walk = payload.score_weight_walk_meters or settings.score_weight_walk_meters
 
-    ondemand_leg = _build_on_demand_leg(
-        session,
-        payload.origin,
-        payload.destination,
-        passengers=1,
-        pickup_start=pickup_start,
-        pickup_end=pickup_end,
-        dropoff_end=dropoff_end,
-    )
+    build_leg = _build_taxi_leg if payload.force_taxi else None
+    if not payload.force_taxi:
+        build_leg = lambda a, b: _build_on_demand_leg(
+            session,
+            a,
+            b,
+            passengers=1,
+            pickup_start=pickup_start,
+            pickup_end=pickup_end,
+            dropoff_end=dropoff_end,
+        )
+
+    ondemand_leg = build_leg(payload.origin, payload.destination) if build_leg else None
     if ondemand_leg:
         only_ondemand = schemas.Itinerary(
             itinerary_id="ondemand-only",
@@ -351,104 +372,93 @@ def plan_multimodal(
         itinerary_counter += 1
 
     if fixed_itineraries:
-        base = fixed_itineraries[0]
-        access_leg = None
-        egress_leg = None
-        if base.legs:
-            first_leg = base.legs[0]
-            last_leg = base.legs[-1]
-            if first_leg.to_stop_id is not None:
-                stop = (
-                    session.execute(select(Stop).where(Stop.stop_id == first_leg.to_stop_id))
-                    .scalars()
-                    .first()
-                )
-                if stop and stop.lat is not None and stop.lon is not None:
-                    access_leg = _build_on_demand_leg(
-                        session,
-                        payload.origin,
-                        [stop.lat, stop.lon],
-                        passengers=1,
-                        pickup_start=pickup_start,
-                        pickup_end=pickup_end,
-                        dropoff_end=dropoff_end,
+        limit = payload.multimodal_limit or len(fixed_itineraries)
+        for base in fixed_itineraries[:limit]:
+            access_leg = None
+            egress_leg = None
+            if base.legs:
+                first_leg = base.legs[0]
+                last_leg = base.legs[-1]
+                if first_leg.to_stop_id is not None:
+                    stop = (
+                        session.execute(
+                            select(Stop).where(Stop.stop_id == first_leg.to_stop_id)
+                        )
+                        .scalars()
+                        .first()
                     )
-            if last_leg.from_stop_id is not None:
-                stop = (
-                    session.execute(select(Stop).where(Stop.stop_id == last_leg.from_stop_id))
-                    .scalars()
-                    .first()
-                )
-                if stop and stop.lat is not None and stop.lon is not None:
-                    egress_leg = _build_on_demand_leg(
-                        session,
-                        [stop.lat, stop.lon],
-                        payload.destination,
-                        passengers=1,
-                        pickup_start=pickup_start,
-                        pickup_end=pickup_end,
-                        dropoff_end=dropoff_end,
+                    if stop and stop.lat is not None and stop.lon is not None:
+                        access_leg = build_leg(payload.origin, [stop.lat, stop.lon]) if build_leg else None
+                if last_leg.from_stop_id is not None:
+                    stop = (
+                        session.execute(
+                            select(Stop).where(Stop.stop_id == last_leg.from_stop_id)
+                        )
+                        .scalars()
+                        .first()
                     )
+                    if stop and stop.lat is not None and stop.lon is not None:
+                        egress_leg = build_leg([stop.lat, stop.lon], payload.destination) if build_leg else None
 
-        combined = _combine(access_leg, base, None, weight_total, weight_wait, weight_walk)
-        results.append(
-            schemas.MultimodalItinerary(
-                itinerary_id=f"multi-{itinerary_counter}",
-                legs=combined.legs,
-                metrics=schemas.MultimodalMetrics(
-                    overall=_metrics_for_legs(
-                        combined.legs, weight_total, weight_wait, weight_walk
+            combined = _combine(access_leg, base, None, weight_total, weight_wait, weight_walk)
+            results.append(
+                schemas.MultimodalItinerary(
+                    itinerary_id=f"multi-{itinerary_counter}",
+                    legs=combined.legs,
+                    metrics=schemas.MultimodalMetrics(
+                        overall=_metrics_for_legs(
+                            combined.legs, weight_total, weight_wait, weight_walk
+                        ),
+                        on_demand=_metrics_for_modes(
+                            combined.legs, True, weight_total, weight_wait, weight_walk
+                        ),
+                        fixed_line=_metrics_for_modes(
+                            combined.legs, False, weight_total, weight_wait, weight_walk
+                        ),
                     ),
-                    on_demand=_metrics_for_modes(
-                        combined.legs, True, weight_total, weight_wait, weight_walk
-                    ),
-                    fixed_line=_metrics_for_modes(
-                        combined.legs, False, weight_total, weight_wait, weight_walk
-                    ),
-                ),
+                )
             )
-        )
-        itinerary_counter += 1
+            itinerary_counter += 1
 
-        combined = _combine(None, base, egress_leg, weight_total, weight_wait, weight_walk)
-        results.append(
-            schemas.MultimodalItinerary(
-                itinerary_id=f"multi-{itinerary_counter}",
-                legs=combined.legs,
-                metrics=schemas.MultimodalMetrics(
-                    overall=_metrics_for_legs(
-                        combined.legs, weight_total, weight_wait, weight_walk
+            combined = _combine(None, base, egress_leg, weight_total, weight_wait, weight_walk)
+            results.append(
+                schemas.MultimodalItinerary(
+                    itinerary_id=f"multi-{itinerary_counter}",
+                    legs=combined.legs,
+                    metrics=schemas.MultimodalMetrics(
+                        overall=_metrics_for_legs(
+                            combined.legs, weight_total, weight_wait, weight_walk
+                        ),
+                        on_demand=_metrics_for_modes(
+                            combined.legs, True, weight_total, weight_wait, weight_walk
+                        ),
+                        fixed_line=_metrics_for_modes(
+                            combined.legs, False, weight_total, weight_wait, weight_walk
+                        ),
                     ),
-                    on_demand=_metrics_for_modes(
-                        combined.legs, True, weight_total, weight_wait, weight_walk
-                    ),
-                    fixed_line=_metrics_for_modes(
-                        combined.legs, False, weight_total, weight_wait, weight_walk
-                    ),
-                ),
+                )
             )
-        )
-        itinerary_counter += 1
+            itinerary_counter += 1
 
-        combined = _combine(access_leg, base, egress_leg, weight_total, weight_wait, weight_walk)
-        results.append(
-            schemas.MultimodalItinerary(
-                itinerary_id=f"multi-{itinerary_counter}",
-                legs=combined.legs,
-                metrics=schemas.MultimodalMetrics(
-                    overall=_metrics_for_legs(
-                        combined.legs, weight_total, weight_wait, weight_walk
+            combined = _combine(access_leg, base, egress_leg, weight_total, weight_wait, weight_walk)
+            results.append(
+                schemas.MultimodalItinerary(
+                    itinerary_id=f"multi-{itinerary_counter}",
+                    legs=combined.legs,
+                    metrics=schemas.MultimodalMetrics(
+                        overall=_metrics_for_legs(
+                            combined.legs, weight_total, weight_wait, weight_walk
+                        ),
+                        on_demand=_metrics_for_modes(
+                            combined.legs, True, weight_total, weight_wait, weight_walk
+                        ),
+                        fixed_line=_metrics_for_modes(
+                            combined.legs, False, weight_total, weight_wait, weight_walk
+                        ),
                     ),
-                    on_demand=_metrics_for_modes(
-                        combined.legs, True, weight_total, weight_wait, weight_walk
-                    ),
-                    fixed_line=_metrics_for_modes(
-                        combined.legs, False, weight_total, weight_wait, weight_walk
-                    ),
-                ),
+                )
             )
-        )
-        itinerary_counter += 1
+            itinerary_counter += 1
 
     best = (
         min(results, key=lambda item: item.metrics.overall.score.score)
