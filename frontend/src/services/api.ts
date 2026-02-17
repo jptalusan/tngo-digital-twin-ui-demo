@@ -1,133 +1,74 @@
-// API Service Layer for backend endpoint management
+import { z } from 'zod';
+import { createApiClient, schemas } from './client';
 
-export interface AutocompleteResult {
-  id: string;
-  name: string;
-  coordinates: [number, number]; // [lat, lng]
-}
+export type AutocompleteResult = z.infer<typeof schemas.AutocompleteResult>;
+export type NavigateRequest = z.infer<typeof schemas.NavigateRequest>;
+export type RouteSegment = z.infer<typeof schemas.RouteSegment>;
+export type Route = z.infer<typeof schemas.Route>;
+export type NavigateResponse = z.infer<typeof schemas.NavigateResponse>;
+export type ReverseGeocodeRequest = z.infer<typeof schemas.ReverseGeocodeRequest>;
+export type ReverseGeocodeResponse = z.infer<typeof schemas.ReverseGeocodeResponse>;
+export type BusRouteGeometryRequest = z.infer<typeof schemas.BusRouteGeometryRequest>;
+export type BusRouteGeometryResponse = z.infer<typeof schemas.BusRouteGeometryResponse>;
+export type OperatorEvaluateRequest = z.infer<typeof schemas.OperatorEvaluateRequest>;
+export type EvaluationMetrics = z.infer<typeof schemas.EvaluationMetrics>;
+export type EvaluationResponse = z.infer<typeof schemas.EvaluationResponse>;
+export type FixedLineRequest = z.infer<typeof schemas.FixedLineRequest>;
+export type FixedLineResponse = z.infer<typeof schemas.FixedLineResponse>;
+export type OnDemandRequest = z.infer<typeof schemas.OnDemandRequest>;
+export type OnDemandResponse = z.infer<typeof schemas.OnDemandResponse>;
+export type MultimodalResponse = z.infer<typeof schemas.MultimodalResponse>;
+export type PrivateVehicleRequest = z.infer<typeof schemas.PrivateVehicleRequest>;
+export type PrivateVehicleResponse = z.infer<typeof schemas.PrivateVehicleResponse>;
 
-export interface NavigateRequest {
-  origin: [number, number];
-  destination: [number, number];
-  modes: string[];
-}
-
-export interface RouteSegment {
-  instruction: string;
-  distance: string;
-  duration: string;
-  coordinates: [number, number][];
-  type: 'walk' | 'drive' | 'transit';
-}
-
-export interface Route {
-  mode: string;
-  totalDuration: string;
-  totalDistance: string;
-  segments: RouteSegment[];
-  coordinates: [number, number][];
-}
-
-export interface NavigateResponse {
-  routes: Route[];
-}
-
-export interface ReverseGeocodeRequest {
-  coordinates: [number, number];
-}
-
-export interface ReverseGeocodeResponse {
-  name: string;
-  address: string;
-}
-
-export interface BusRouteGeometryRequest {
-  origin: string;
-  destination: string;
-}
-
-export interface BusRouteGeometryResponse {
-  geometry: [number, number][];
-  distance: string;
-  duration: string;
-}
-
-export interface OperatorEvaluateRequest {
-  modes: {
-    type: 'on-demand' | 'bus' | 'on-demand+bus';
-    config: any;
-  }[];
-}
-
-export interface EvaluationMetrics {
-  totalCoverage: string;
-  estimatedCost: string;
-  ridership: string;
-  averageWaitTime: string;
-  serviceHours: string;
-}
-
-export interface EvaluationResponse {
-  success: boolean;
-  message: string;
-  metrics: EvaluationMetrics;
-  coverageArea: [number, number][][]; // Polygon coordinates
-  heatmapData: { coordinates: [number, number]; intensity: number }[];
-  serviceBoundaries: [number, number][][]; // Multiple polygons
-}
-
-const apiBase = (import.meta.env.VITE_API_URL as string | undefined) ?? '';
-const apiPrefix = (import.meta.env.VITE_API_PREFIX as string | undefined) ?? '/api';
-
-const buildUrl = (path: string) => `${apiBase}${apiPrefix}${path}`;
-
-async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const response = await fetch(buildUrl(path), {
-    headers: { 'Content-Type': 'application/json', ...(options?.headers ?? {}) },
-    ...options,
-  });
-
-  if (!response.ok) {
-    const message = await response.text();
-    throw new Error(message || `Request failed: ${response.status}`);
-  }
-
-  return (await response.json()) as T;
-}
+const apiBase =
+  (import.meta.env.VITE_API_URL as string | undefined) ??
+  (typeof window !== 'undefined' ? window.location.origin : '');
+// The generated client includes the `/api` prefix in its paths.
+const apiClient = createApiClient(apiBase || 'http://localhost:8000');
 
 class ApiService {
   async autocomplete(query: string): Promise<AutocompleteResult[]> {
     if (!query) return [];
-    const params = new URLSearchParams({ query });
-    return request<AutocompleteResult[]>(`/autocomplete?${params.toString()}`);
+    return apiClient.autocomplete_api_autocomplete_get({ queries: { query } });
   }
 
   async reverseGeocode(requestBody: ReverseGeocodeRequest): Promise<ReverseGeocodeResponse> {
-    return request<ReverseGeocodeResponse>('/reverse-geocode', {
-      method: 'POST',
-      body: JSON.stringify(requestBody),
-    });
+    return apiClient.reverse_geocode_api_reverse_geocode_post(requestBody);
   }
 
   async navigate(requestBody: NavigateRequest): Promise<NavigateResponse> {
-    return request<NavigateResponse>('/navigate', {
-      method: 'POST',
-      body: JSON.stringify(requestBody),
-    });
+    return apiClient.navigate_api_navigate_post(requestBody);
   }
 
-  async getBusRouteGeometry(requestBody: BusRouteGeometryRequest): Promise<BusRouteGeometryResponse> {
-    return request<BusRouteGeometryResponse>('/bus/geometry', {
-      method: 'POST',
-      body: JSON.stringify(requestBody),
-    });
+  async getBusRouteGeometry(
+    requestBody: BusRouteGeometryRequest
+  ): Promise<BusRouteGeometryResponse> {
+    return apiClient.bus_geometry_api_bus_geometry_post(requestBody);
   }
 
   async evaluate(requestBody: OperatorEvaluateRequest): Promise<EvaluationResponse> {
-    return request<EvaluationResponse>('/evaluate', {
-      method: 'POST',
-      body: JSON.stringify(requestBody),
-    });
+    return apiClient.evaluate_api_evaluate_post(requestBody);
+  }
+
+  async planFixedLine(requestBody: FixedLineRequest): Promise<FixedLineResponse> {
+    console.log('[api] planFixedLine body:', requestBody);
+    return apiClient.plan_fixed_line_api_plan_fixed_line_post(requestBody);
+  }
+
+  async planOnDemand(requestBody: OnDemandRequest): Promise<OnDemandResponse> {
+    console.log('[api] planOnDemand body:', requestBody);
+    return apiClient.plan_on_demand_api_plan_on_demand_post(requestBody);
+  }
+
+  async planMultimodal(requestBody: FixedLineRequest): Promise<MultimodalResponse> {
+    console.log('[api] planMultimodal body:', requestBody);
+    return apiClient.plan_multimodal_api_plan_multimodal_post(requestBody);
+  }
+
+  async planPrivateVehicle(requestBody: PrivateVehicleRequest): Promise<PrivateVehicleResponse> {
+    console.log('[api] planPrivateVehicle body:', requestBody);
+    return apiClient.plan_private_vehicle_api_plan_private_vehicle_post(requestBody);
   }
 }
 

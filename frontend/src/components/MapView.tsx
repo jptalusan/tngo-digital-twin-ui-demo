@@ -51,6 +51,7 @@ export function MapView({ markers, routes, onMapClick, onMapRightClick, highligh
   const highlightLayerRef = useRef<L.Polyline | null>(null);
   const layersGroupRef = useRef<L.LayerGroup | null>(null);
   const lastBoundsRef = useRef<string>('');
+  const resizeObserverRef = useRef<ResizeObserver | null>(null);
 
   // Initialize map
   useEffect(() => {
@@ -67,7 +68,16 @@ export function MapView({ markers, routes, onMapClick, onMapRightClick, highligh
     routesLayerRef.current = L.layerGroup().addTo(map);
     layersGroupRef.current = L.layerGroup().addTo(map);
 
+    if (typeof ResizeObserver !== 'undefined') {
+      resizeObserverRef.current = new ResizeObserver(() => {
+        map.invalidateSize();
+      });
+      resizeObserverRef.current.observe(mapContainerRef.current);
+    }
+
     return () => {
+      resizeObserverRef.current?.disconnect();
+      resizeObserverRef.current = null;
       map.remove();
       mapRef.current = null;
     };
@@ -95,6 +105,9 @@ export function MapView({ markers, routes, onMapClick, onMapRightClick, highligh
     if (!map || !onMapRightClick) return;
 
     const handleContextMenu = (e: L.LeafletMouseEvent) => {
+      if (e.originalEvent?.preventDefault) {
+        e.originalEvent.preventDefault();
+      }
       onMapRightClick([e.latlng.lat, e.latlng.lng], e.originalEvent.clientX, e.originalEvent.clientY);
     };
 

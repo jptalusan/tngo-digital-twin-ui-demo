@@ -1,8 +1,9 @@
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect } from 'react';
 import { MapView, Marker, RoutePolyline, MapLayer } from './components/MapView';
 import { PassengerView } from './components/PassengerView';
 import { OperatorView, Depot, BusRoute } from './components/OperatorView';
 import { EvaluationDrawer } from './components/EvaluationDrawer';
+import { ItineraryDrawer } from './components/ItineraryDrawer';
 import { MapLegend, LegendItem } from './components/MapLegend';
 import { MapContextMenu } from './components/MapContextMenu';
 import { apiService, AutocompleteResult, Route, EvaluationResponse } from './services/api';
@@ -25,6 +26,69 @@ export default function App() {
   const [evaluating, setEvaluating] = useState(false);
   const [legendItems, setLegendItems] = useState<LegendItem[]>([]);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; coordinates: [number, number] } | null>(null);
+  const [itineraryDrawerOpen, setItineraryDrawerOpen] = useState(true);
+  const [itineraryBestId, setItineraryBestId] = useState<string | null>(null);
+  const [itineraries, setItineraries] = useState<any[]>([]);
+  const [itineraryMode, setItineraryMode] = useState<string>('');
+  const [selectedItineraryId, setSelectedItineraryId] = useState<string | null>(null);
+  const decodePolyline = useCallback((encoded: string): [number, number][] => {
+    let index = 0;
+    let lat = 0;
+    let lng = 0;
+    const coordinates: [number, number][] = [];
+
+    while (index < encoded.length) {
+      let result = 0;
+      let shift = 0;
+      let byte = 0;
+      do {
+        byte = encoded.charCodeAt(index++) - 63;
+        result |= (byte & 0x1f) << shift;
+        shift += 5;
+      } while (byte >= 0x20);
+      const deltaLat = (result & 1) ? ~(result >> 1) : result >> 1;
+      lat += deltaLat;
+
+      result = 0;
+      shift = 0;
+      do {
+        byte = encoded.charCodeAt(index++) - 63;
+        result |= (byte & 0x1f) << shift;
+        shift += 5;
+      } while (byte >= 0x20);
+      const deltaLng = (result & 1) ? ~(result >> 1) : result >> 1;
+      lng += deltaLng;
+
+      coordinates.push([lat / 1e5, lng / 1e5]);
+    }
+    return coordinates;
+  }, []);
+
+  const extractItineraryGeometry = useCallback(
+    (itinerary: any): [number, number][] | null => {
+      if (!itinerary) return null;
+      if (typeof itinerary.geometry === 'string' && itinerary.geometry.length > 0) {
+        return decodePolyline(itinerary.geometry);
+      }
+      const legs = Array.isArray(itinerary.legs) ? itinerary.legs : [];
+      const merged: [number, number][] = [];
+      legs.forEach((leg: any) => {
+        if (typeof leg?.geometry === 'string' && leg.geometry.length > 0) {
+          const points = decodePolyline(leg.geometry);
+          if (points.length === 0) return;
+          if (merged.length > 0 && merged[merged.length - 1][0] === points[0][0] && merged[merged.length - 1][1] === points[0][1]) {
+            merged.push(...points.slice(1));
+          } else {
+            merged.push(...points);
+          }
+        }
+      });
+      return merged.length > 0 ? merged : null;
+    },
+    [decodePolyline]
+  );
+  const formatCoordinates = (coordinates: [number, number]) =>
+    `${coordinates[0].toFixed(5)}, ${coordinates[1].toFixed(5)}`;
 
   // Generate markers for map
   const markers = useMemo(() => {
@@ -59,6 +123,20 @@ export default function App() {
     return m;
   }, [viewMode, origin, destination, depots]);
 
+  useEffect(() => {
+    if (itineraries.length === 0) {
+      setSelectedItineraryId(null);
+      return;
+    }
+    const best = itineraryBestId ?? itineraries[0]?.itinerary_id ?? null;
+    setSelectedItineraryId(best);
+  }, [itineraries, itineraryBestId]);
+
+  const selectedItinerary = useMemo(() => {
+    if (!selectedItineraryId) return null;
+    return itineraries.find((it) => it?.itinerary_id === selectedItineraryId) ?? null;
+  }, [itineraries, selectedItineraryId]);
+
   // Generate route polylines for map
   const routePolylines = useMemo(() => {
     const polylines: RoutePolyline[] = [];
@@ -90,8 +168,21 @@ export default function App() {
         }
       });
     }
+
+    if (viewMode === 'passenger' && selectedItinerary) {
+      const geometry = extractItineraryGeometry(selectedItinerary);
+      if (geometry && geometry.length > 0) {
+        polylines.push({
+          id: 'selected-itinerary',
+          coordinates: geometry,
+          color: '#7c3aed',
+          weight: 6,
+          opacity: 0.9
+        });
+      }
+    }
     return polylines;
-  }, [viewMode, routes, selectedRouteIndex, busRoutes]);
+  }, [viewMode, routes, selectedRouteIndex, busRoutes, selectedItinerary, extractItineraryGeometry]);
 
   // Map layers for evaluation
   const mapLayers = useMemo(() => {
@@ -129,21 +220,66 @@ export default function App() {
     return layers;
   }, [viewMode, evaluationResult, legendItems]);
 
-  const handleNavigate = async (modes: string[]) => {
-    if (!origin || !destination) return;
-
+  const handleNavigate = async (
+    mode: 'on-demand' | 'bus' | 'car+bus' | 'car',
+    payload: { origin: [number, number]; destination: [number, number] }
+  ) => {
     setLoading(true);
     setRoutes([]);
     setSelectedRouteIndex(0);
     setHighlightedSegment(undefined);
 
     try {
-      const response = await apiService.navigate({
-        origin: origin.coordinates,
-        destination: destination.coordinates,
-        modes
-      });
-      setRoutes(response.routes);
+      console.log('[navigate] mode:', mode, 'payload:', payload);
+
+      if (mode === 'on-demand') {
+        const response = await apiService.planOnDemand(payload);
+        console.log('[navigate] response:', response);
+        setItineraryBestId(null);
+        setItineraries(response.itineraries ?? []);
+        setItineraryMode('On-Demand');
+        setItineraryDrawerOpen(true);
+      } else if (mode === 'bus') {
+        const response = await apiService.planFixedLine({
+          ...payload,
+          depart_at_min: 480,
+          service_date: '20251001',
+          transfer_limit: 5,
+          max_walk_meters: 2000,
+          max_wait_minutes: 60,
+          max_invehicle_minutes: 180,
+          max_total_minutes: 240
+        });
+        console.log('[navigate] response:', response);
+        setItineraryBestId(response.best_itinerary ?? null);
+        setItineraries(response.itineraries ?? []);
+        setItineraryMode('Fixed Line');
+        setItineraryDrawerOpen(true);
+      } else if (mode === 'car+bus') {
+        const response = await apiService.planMultimodal({
+          ...payload,
+          depart_at_min: 480,
+          service_date: '20251001',
+          transfer_limit: 5,
+          max_walk_meters: 2000,
+          max_wait_minutes: 60,
+          max_invehicle_minutes: 180,
+          max_total_minutes: 240,
+          force_taxi: true
+        });
+        console.log('[navigate] response:', response);
+        setItineraryBestId(response.best_itinerary ?? null);
+        setItineraries(response.itineraries ?? []);
+        setItineraryMode('Multimodal');
+        setItineraryDrawerOpen(true);
+      } else {
+        const response = await apiService.planPrivateVehicle(payload);
+        console.log('[navigate] response:', response);
+        setItineraryBestId(response.best_itinerary ?? null);
+        setItineraries(response.itineraries ?? []);
+        setItineraryMode('Private Vehicle');
+        setItineraryDrawerOpen(true);
+      }
     } catch (error) {
       console.error('Navigation error:', error);
     } finally {
@@ -170,41 +306,39 @@ export default function App() {
   }, [mapClickEnabled]);
 
   const handleMapRightClick = useCallback((coordinates: [number, number], x: number, y: number) => {
-    if (viewMode === 'passenger') {
-      setContextMenu({ x, y, coordinates });
-    }
-  }, [viewMode]);
+    setContextMenu({ x, y, coordinates });
+  }, []);
 
   const handleSetOrigin = async () => {
-    if (contextMenu) {
-      try {
-        const result = await apiService.reverseGeocode({ coordinates: contextMenu.coordinates });
-        const location: AutocompleteResult = {
-          id: `map-origin-${Date.now()}`,
-          name: result.name,
-          coordinates: contextMenu.coordinates
-        };
-        setOrigin(location);
-      } catch (error) {
-        console.error('Failed to set origin:', error);
+    if (!contextMenu?.coordinates) return;
+    if (viewMode === 'operator') {
+      if (typeof window !== 'undefined' && (window as any).handleOperatorSetOrigin) {
+        (window as any).handleOperatorSetOrigin(contextMenu.coordinates);
       }
+      return;
     }
+    const location: AutocompleteResult = {
+      id: `map-origin-${Date.now()}`,
+      name: formatCoordinates(contextMenu.coordinates),
+      coordinates: contextMenu.coordinates
+    };
+    setOrigin(location);
   };
 
   const handleSetDestination = async () => {
-    if (contextMenu) {
-      try {
-        const result = await apiService.reverseGeocode({ coordinates: contextMenu.coordinates });
-        const location: AutocompleteResult = {
-          id: `map-dest-${Date.now()}`,
-          name: result.name,
-          coordinates: contextMenu.coordinates
-        };
-        setDestination(location);
-      } catch (error) {
-        console.error('Failed to set destination:', error);
+    if (!contextMenu?.coordinates) return;
+    if (viewMode === 'operator') {
+      if (typeof window !== 'undefined' && (window as any).handleOperatorSetDestination) {
+        (window as any).handleOperatorSetDestination(contextMenu.coordinates);
       }
+      return;
     }
+    const location: AutocompleteResult = {
+      id: `map-dest-${Date.now()}`,
+      name: formatCoordinates(contextMenu.coordinates),
+      coordinates: contextMenu.coordinates
+    };
+    setDestination(location);
   };
 
   const handleAddDepot = (depot: Depot) => {
@@ -305,7 +439,7 @@ export default function App() {
       </div>
 
       {/* Main Content */}
-      <div className="flex-1 flex overflow-hidden relative">
+      <div className="flex-1 flex min-h-0 overflow-hidden relative">
         {/* Sidebar */}
         {viewMode === 'passenger' ? (
           <PassengerView
@@ -333,43 +467,85 @@ export default function App() {
           />
         )}
 
-        {/* Map */}
-        <div className="flex-1 relative">
-          <MapView
-            markers={markers}
-            routes={routePolylines}
-            onMapClick={handleMapClick}
-            onMapRightClick={handleMapRightClick}
-            highlightedSegment={highlightedSegment}
-            layers={mapLayers}
-          />
-          
-          {/* Map Legend */}
-          {viewMode === 'operator' && evaluationResult && (
-            <MapLegend items={legendItems} onToggle={handleLegendToggle} />
-          )}
-
-          {/* Context Menu */}
-          {contextMenu && (
-            <MapContextMenu
-              x={contextMenu.x}
-              y={contextMenu.y}
-              onSetOrigin={handleSetOrigin}
-              onSetDestination={handleSetDestination}
-              onClose={() => setContextMenu(null)}
+        {/* Map + Itinerary Panel */}
+        {viewMode === 'passenger' ? (
+          <div className="flex flex-1 min-h-0">
+            <div className="relative flex-1 min-h-0">
+              <MapView
+                markers={markers}
+                routes={routePolylines}
+                onMapClick={handleMapClick}
+                onMapRightClick={handleMapRightClick}
+                highlightedSegment={highlightedSegment}
+                layers={mapLayers}
+              />
+            </div>
+            {(itineraryDrawerOpen || itineraries.length > 0) && (
+              <div className="h-full w-[420px] min-w-[420px] max-w-[420px] shrink-0 border-l bg-white">
+                <ItineraryDrawer
+                  open
+                  onOpenChange={setItineraryDrawerOpen}
+                  itineraries={itineraries}
+                  bestItineraryId={itineraryBestId}
+                  selectedItineraryId={selectedItineraryId}
+                  onSelectItinerary={(itinerary) => {
+                    setSelectedItineraryId(itinerary?.itinerary_id ?? null);
+                  }}
+                  onSelectLeg={(leg) => {
+                    if (typeof (leg as any)?.geometry === 'string' && (leg as any).geometry.length > 0) {
+                      setHighlightedSegment(decodePolyline((leg as any).geometry));
+                    } else {
+                      setHighlightedSegment(undefined);
+                    }
+                  }}
+                  modeLabel={itineraryMode}
+                />
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="relative flex-1 min-h-0">
+            <MapView
+              markers={markers}
+              routes={routePolylines}
+              onMapClick={handleMapClick}
+              onMapRightClick={handleMapRightClick}
+              highlightedSegment={highlightedSegment}
+              layers={mapLayers}
             />
-          )}
+            <div className="absolute inset-0 z-10 pointer-events-none">
+              {/* Map Legend */}
+              {viewMode === 'operator' && evaluationResult && (
+                <div className="pointer-events-auto">
+                  <MapLegend items={legendItems} onToggle={handleLegendToggle} />
+                </div>
+              )}
 
-          {/* Evaluation Drawer */}
-          {viewMode === 'operator' && (
-            <EvaluationDrawer
-              isOpen={showEvaluationDrawer}
-              onClose={() => setShowEvaluationDrawer(false)}
-              metrics={evaluationResult?.metrics || null}
-            />
-          )}
-        </div>
+              {/* Evaluation Drawer */}
+              {viewMode === 'operator' && (
+                <div className="pointer-events-auto">
+                  <EvaluationDrawer
+                    isOpen={showEvaluationDrawer}
+                    onClose={() => setShowEvaluationDrawer(false)}
+                    metrics={evaluationResult?.metrics || null}
+                  />
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
+
+      {/* Global Context Menu */}
+      {contextMenu && (
+        <MapContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          onSetOrigin={handleSetOrigin}
+          onSetDestination={handleSetDestination}
+          onClose={() => setContextMenu(null)}
+        />
+      )}
     </div>
   );
 }

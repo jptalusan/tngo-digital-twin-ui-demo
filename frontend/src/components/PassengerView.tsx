@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { Car, Bus, Shuffle, Navigation, ChevronLeft, ChevronRight } from 'lucide-react';
-import { apiService, AutocompleteResult, Route } from '../services/api';
+import { AutocompleteResult, Route } from '../services/api';
 import { RouteAccordion } from './RouteAccordion';
 
 import { RotateCcw } from 'lucide-react';
@@ -10,7 +10,10 @@ interface PassengerViewProps {
   destination: AutocompleteResult | null;
   onOriginChange: (location: AutocompleteResult | null) => void;
   onDestinationChange: (location: AutocompleteResult | null) => void;
-  onNavigate: (modes: string[]) => void;
+  onNavigate: (
+    mode: 'on-demand' | 'bus' | 'car+bus' | 'car',
+    payload: { origin: [number, number]; destination: [number, number] }
+  ) => void;
   routes: Route[];
   loading: boolean;
   onRouteClick: (route: Route) => void;
@@ -32,13 +35,9 @@ export function PassengerView({
 }: PassengerViewProps) {
   const [originQuery, setOriginQuery] = useState('');
   const [destinationQuery, setDestinationQuery] = useState('');
-  const [originSuggestions, setOriginSuggestions] = useState<AutocompleteResult[]>([]);
-  const [destinationSuggestions, setDestinationSuggestions] = useState<AutocompleteResult[]>([]);
   const [selectedOrigin, setSelectedOrigin] = useState<AutocompleteResult | null>(null);
   const [selectedDestination, setSelectedDestination] = useState<AutocompleteResult | null>(null);
-  const [showOriginSuggestions, setShowOriginSuggestions] = useState(false);
-  const [showDestinationSuggestions, setShowDestinationSuggestions] = useState(false);
-  const [selectedModes, setSelectedModes] = useState<Set<string>>(new Set(['car']));
+  const [selectedMode, setSelectedMode] = useState<'on-demand' | 'bus' | 'car+bus' | 'car'>('car');
   const [expandedRoute, setExpandedRoute] = useState<number | null>(0);
   const [isCollapsed, setIsCollapsed] = useState(false);
 
@@ -72,63 +71,54 @@ export function PassengerView({
     }
   }, [destination]);
 
-  // Autocomplete for origin
-  useEffect(() => {
-    const fetchSuggestions = async () => {
-      if (originQuery.length > 0) {
-        const results = await apiService.autocomplete(originQuery);
-        setOriginSuggestions(results);
-      } else {
-        setOriginSuggestions([]);
-      }
-    };
-
-    const timer = setTimeout(fetchSuggestions, 300);
-    return () => clearTimeout(timer);
-  }, [originQuery]);
-
-  // Autocomplete for destination
-  useEffect(() => {
-    const fetchSuggestions = async () => {
-      if (destinationQuery.length > 0) {
-        const results = await apiService.autocomplete(destinationQuery);
-        setDestinationSuggestions(results);
-      } else {
-        setDestinationSuggestions([]);
-      }
-    };
-
-    const timer = setTimeout(fetchSuggestions, 300);
-    return () => clearTimeout(timer);
-  }, [destinationQuery]);
-
-  const handleOriginSelect = (suggestion: AutocompleteResult) => {
-    setSelectedOrigin(suggestion);
-    setOriginQuery(suggestion.name);
-    setShowOriginSuggestions(false);
-    onOriginChange(suggestion);
+  const handleSelectMode = (mode: 'on-demand' | 'bus' | 'car+bus' | 'car') => {
+    setSelectedMode(mode);
   };
 
-  const handleDestinationSelect = (suggestion: AutocompleteResult) => {
-    setSelectedDestination(suggestion);
-    setDestinationQuery(suggestion.name);
-    setShowDestinationSuggestions(false);
-    onDestinationChange(suggestion);
-  };
-
-  const toggleMode = (mode: string) => {
-    const newModes = new Set(selectedModes);
-    if (newModes.has(mode)) {
-      newModes.delete(mode);
-    } else {
-      newModes.add(mode);
-    }
-    setSelectedModes(newModes);
+  const parseCoordinates = (value: string): [number, number] | null => {
+    const parts = value.split(',').map((part) => Number(part.trim()));
+    if (parts.length !== 2) return null;
+    if (parts.some((num) => Number.isNaN(num))) return null;
+    return [parts[0], parts[1]];
   };
 
   const handleNavigate = () => {
-    if (selectedOrigin && selectedDestination && selectedModes.size > 0) {
-      onNavigate(Array.from(selectedModes));
+    let nextOrigin = selectedOrigin;
+    let nextDestination = selectedDestination;
+
+    if (!nextOrigin) {
+      const coordinates = parseCoordinates(originQuery);
+      if (coordinates) {
+        nextOrigin = {
+          id: `typed-origin-${Date.now()}`,
+          name: originQuery,
+          coordinates
+        };
+        setSelectedOrigin(nextOrigin);
+        onOriginChange(nextOrigin);
+      }
+    }
+
+    if (!nextDestination) {
+      const coordinates = parseCoordinates(destinationQuery);
+      if (coordinates) {
+        nextDestination = {
+          id: `typed-destination-${Date.now()}`,
+          name: destinationQuery,
+          coordinates
+        };
+        setSelectedDestination(nextDestination);
+        onDestinationChange(nextDestination);
+      }
+    }
+
+    if (nextOrigin && nextDestination) {
+      console.log('[passenger] navigate origin:', nextOrigin.coordinates);
+      console.log('[passenger] navigate destination:', nextDestination.coordinates);
+      onNavigate(selectedMode, {
+        origin: nextOrigin.coordinates,
+        destination: nextDestination.coordinates
+      });
     }
   };
 
@@ -182,25 +172,10 @@ export function PassengerView({
                 value={originQuery}
                 onChange={(e) => {
                   setOriginQuery(e.target.value);
-                  setShowOriginSuggestions(true);
                 }}
-                onFocus={() => setShowOriginSuggestions(true)}
                 className="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 placeholder="Enter starting location"
               />
-              {showOriginSuggestions && originSuggestions.length > 0 && (
-                <div className="absolute z-10 w-full mt-1 bg-white border rounded-lg shadow-lg max-h-48 overflow-y-auto">
-                  {originSuggestions.map((suggestion) => (
-                    <button
-                      key={suggestion.id}
-                      onClick={() => handleOriginSelect(suggestion)}
-                      className="w-full px-4 py-2 text-left hover:bg-gray-100"
-                    >
-                      {suggestion.name}
-                    </button>
-                  ))}
-                </div>
-              )}
             </div>
 
             {/* Destination Input */}
@@ -212,25 +187,10 @@ export function PassengerView({
                 value={destinationQuery}
                 onChange={(e) => {
                   setDestinationQuery(e.target.value);
-                  setShowDestinationSuggestions(true);
                 }}
-                onFocus={() => setShowDestinationSuggestions(true)}
                 className="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 placeholder="Enter destination"
               />
-              {showDestinationSuggestions && destinationSuggestions.length > 0 && (
-                <div className="absolute z-10 w-full mt-1 bg-white border rounded-lg shadow-lg max-h-48 overflow-y-auto">
-                  {destinationSuggestions.map((suggestion) => (
-                    <button
-                      key={suggestion.id}
-                      onClick={() => handleDestinationSelect(suggestion)}
-                      className="w-full px-4 py-2 text-left hover:bg-gray-100"
-                    >
-                      {suggestion.name}
-                    </button>
-                  ))}
-                </div>
-              )}
             </div>
 
             {/* Mode Selection */}
@@ -238,9 +198,9 @@ export function PassengerView({
               <label className="block text-sm mb-3">Travel Mode</label>
               <div className="grid grid-cols-2 gap-3">
                 <button
-                  onClick={() => toggleMode('car')}
+                  onClick={() => handleSelectMode('car')}
                   className={`flex items-center justify-center gap-2 px-4 py-3 rounded-lg border-2 transition-colors ${
-                    selectedModes.has('car')
+                    selectedMode === 'car'
                       ? 'border-blue-500 bg-blue-50 text-blue-700'
                       : 'border-gray-300 hover:border-gray-400'
                   }`}
@@ -249,9 +209,9 @@ export function PassengerView({
                   <span>Car</span>
                 </button>
                 <button
-                  onClick={() => toggleMode('on-demand')}
+                  onClick={() => handleSelectMode('on-demand')}
                   className={`flex items-center justify-center gap-2 px-4 py-3 rounded-lg border-2 transition-colors ${
-                    selectedModes.has('on-demand')
+                    selectedMode === 'on-demand'
                       ? 'border-blue-500 bg-blue-50 text-blue-700'
                       : 'border-gray-300 hover:border-gray-400'
                   }`}
@@ -260,9 +220,9 @@ export function PassengerView({
                   <span>On-Demand</span>
                 </button>
                 <button
-                  onClick={() => toggleMode('bus')}
+                  onClick={() => handleSelectMode('bus')}
                   className={`flex items-center justify-center gap-2 px-4 py-3 rounded-lg border-2 transition-colors ${
-                    selectedModes.has('bus')
+                    selectedMode === 'bus'
                       ? 'border-blue-500 bg-blue-50 text-blue-700'
                       : 'border-gray-300 hover:border-gray-400'
                   }`}
@@ -271,9 +231,9 @@ export function PassengerView({
                   <span>Bus</span>
                 </button>
                 <button
-                  onClick={() => toggleMode('car+bus')}
+                  onClick={() => handleSelectMode('car+bus')}
                   className={`flex items-center justify-center gap-2 px-4 py-3 rounded-lg border-2 transition-colors ${
-                    selectedModes.has('car+bus')
+                    selectedMode === 'car+bus'
                       ? 'border-blue-500 bg-blue-50 text-blue-700'
                       : 'border-gray-300 hover:border-gray-400'
                   }`}
@@ -288,7 +248,7 @@ export function PassengerView({
             <div className="space-y-4">
               <button
                 onClick={handleNavigate}
-                disabled={!selectedOrigin || !selectedDestination || selectedModes.size === 0 || loading}
+                disabled={!selectedOrigin || !selectedDestination || loading}
                 className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
               >
                 <Navigation size={20} />

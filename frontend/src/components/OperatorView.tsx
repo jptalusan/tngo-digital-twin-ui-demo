@@ -46,6 +46,7 @@ export function OperatorView({
   const [newDepotVehicles, setNewDepotVehicles] = useState(5);
   const [newDepotCapacity, setNewDepotCapacity] = useState(4);
   const [busRoutes, setBusRoutes] = useState<BusRoute[]>([]);
+  const [activeBusRouteId, setActiveBusRouteId] = useState<string | null>(null);
   const [gtfsMode, setGtfsMode] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [onDemandExpanded, setOnDemandExpanded] = useState(true);
@@ -97,6 +98,7 @@ export function OperatorView({
     };
     const updatedRoutes = [...busRoutes, newRoute];
     setBusRoutes(updatedRoutes);
+    setActiveBusRouteId(newRoute.id);
     onBusRouteUpdate(updatedRoutes);
   };
 
@@ -129,12 +131,29 @@ export function OperatorView({
   const removeBusRoute = (id: string) => {
     const updatedRoutes = busRoutes.filter(route => route.id !== id);
     setBusRoutes(updatedRoutes);
+    if (activeBusRouteId === id) {
+      setActiveBusRouteId(updatedRoutes.length > 0 ? updatedRoutes[updatedRoutes.length - 1].id : null);
+    }
     onBusRouteUpdate(updatedRoutes);
+  };
+
+  const formatCoordinates = (coordinates: [number, number]) =>
+    `${coordinates[0].toFixed(5)}, ${coordinates[1].toFixed(5)}`;
+
+  const setRouteEndpoint = (type: 'origin' | 'destination', coordinates: [number, number]) => {
+    if (busRoutes.length === 0) return;
+    const targetRouteId = activeBusRouteId ?? busRoutes[busRoutes.length - 1].id;
+    const value = formatCoordinates(coordinates);
+    void updateBusRoute(targetRouteId, { [type]: value });
   };
 
   // Expose handleAddDepot to parent via window object for map clicks
   if (typeof window !== 'undefined') {
     (window as any).handleOperatorMapClick = handleAddDepot;
+    (window as any).handleOperatorSetOrigin = (coordinates: [number, number]) =>
+      setRouteEndpoint('origin', coordinates);
+    (window as any).handleOperatorSetDestination = (coordinates: [number, number]) =>
+      setRouteEndpoint('destination', coordinates);
   }
 
   return (
