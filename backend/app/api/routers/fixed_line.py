@@ -15,6 +15,7 @@ from app.logging.config import get_logger
 from app.crud import gtfs as gtfs_crud
 from app.services.planning import get_distance_m
 from app.services.leg_geometry import fill_leg_metrics, aggregate_geometry
+from app.services.leg_merge import merge_walk_on_demand
 
 logger = get_logger("fixed_line")
 
@@ -193,7 +194,7 @@ def plan_fixed_line(
 
         itinerary = schemas.Itinerary(
             itinerary_id="fixed-1",
-            legs=legs,
+            legs=merge_walk_on_demand(legs),
             total_duration_s=total_duration_s,
             total_walk_m=total_walk_m,
             total_wait_s=first.total_wait_s,
@@ -258,6 +259,7 @@ def plan_fixed_line(
             for leg in candidate.legs
         ]
         fill_leg_metrics(session, payload.origin, payload.destination, legs)
+        legs = merge_walk_on_demand(legs)
         total_walk_m = sum(
             leg.distance_m or 0 for leg in legs if leg.mode == "walk"
         )

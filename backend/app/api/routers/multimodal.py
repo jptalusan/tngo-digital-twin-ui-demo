@@ -14,6 +14,8 @@ from app.crud import gtfs as gtfs_crud
 from app.models.gtfs import Stop
 from app.logging.config import get_logger
 from app.services.leg_geometry import fill_leg_metrics, aggregate_geometry
+from app.services import hubs
+from app.services.leg_merge import merge_walk_on_demand
 
 logger = get_logger("multimodal")
 
@@ -82,6 +84,127 @@ def _build_fixed_line(
         extra_access_stop_ids=extra_access or None,
         extra_egress_stop_ids=extra_egress or None,
     )
+
+    if payload.boc_request:
+        ingress = gtfs_crud.find_nearest_stop_by_prefix(
+            session,
+            hubs.BOC_PREFIX,
+            payload.origin[0],
+            payload.origin[1],
+            settings.boc_hub_search_m,
+        )
+        egress = gtfs_crud.find_nearest_stop_by_prefix(
+            session,
+            hubs.BOC_PREFIX,
+            payload.destination[0],
+            payload.destination[1],
+            settings.boc_hub_search_m,
+        )
+        if ingress is None or egress is None:
+            return []
+
+        boc_inputs = planning_service.FixedLineInputs(
+            origin_lat=payload.origin[0],
+            origin_lon=payload.origin[1],
+            destination_lat=ingress.lat or payload.origin[0],
+            destination_lon=ingress.lon or payload.origin[1],
+            depart_at_min=depart_at_min or 0,
+            transfer_limit=payload.transfer_limit or settings.default_transfer_limit,
+            active_service_ids=active_service_ids,
+            constraints=constraints,
+            extra_access_stop_ids=None,
+            extra_egress_stop_ids={ingress.stop_id},
+        )
+        candidates = planning_service.build_fixed_line_itineraries(session, boc_inputs)
+        if not candidates:
+            return []
+        first = candidates[0]
+        legs = [
+            schemas.Leg(
+                mode=leg.mode,
+                from_stop_id=leg.from_stop_id,
+                to_stop_id=leg.to_stop_id,
+                distance_m=leg.distance_m,
+                duration_s=leg.duration_s,
+                route_id=leg.route_id,
+                trip_id=leg.trip_id,
+            )
+            for leg in first.legs
+        ]
+        fill_leg_metrics(
+            session,
+            payload.origin,
+            [ingress.lat or payload.origin[0], ingress.lon or payload.origin[1]],
+            legs,
+        )
+        brt_leg = schemas.Leg(
+            mode="transit",
+            from_stop_id=ingress.stop_id,
+            to_stop_id=egress.stop_id,
+            distance_m=None,
+            duration_s=None,
+            route_id="BOC_BRT",
+            trip_id=None,
+        )
+        legs.append(brt_leg)
+
+        walk_m = planning_service.get_distance_m(
+            egress.lat or payload.destination[0],
+            egress.lon or payload.destination[1],
+            payload.destination[0],
+            payload.destination[1],
+        )
+        walk_s = int(walk_m / settings.default_walk_speed_mps)
+        walk_leg = None
+        if walk_s > 0:
+            walk_leg = schemas.Leg(
+                mode="walk",
+                from_stop_id=egress.stop_id,
+                to_stop_id=None,
+                distance_m=round(walk_m, 2),
+                duration_s=walk_s,
+            )
+            legs.append(walk_leg)
+
+        leg_subset = [brt_leg]
+        if walk_leg is not None:
+            leg_subset.append(walk_leg)
+        fill_leg_metrics(session, payload.origin, payload.destination, leg_subset)
+
+        total_walk_m = sum(
+            leg.distance_m or 0 for leg in legs if leg.mode == "walk"
+        )
+        total_transit_distance_m = sum(
+            leg.distance_m or 0 for leg in legs if leg.mode in ("transit", "transfer")
+        )
+        score = schemas.ScoreBreakdown(
+            total_minutes=round(first.total_duration_s / 60, 4),
+            wait_minutes=round(first.total_wait_s / 60, 4),
+            walk_meters=round(total_walk_m, 2),
+            weight_total_minutes=constraints.score_weight_total_minutes,
+            weight_wait_minutes=constraints.score_weight_wait_minutes,
+            weight_walk_meters=constraints.score_weight_walk_meters,
+            score=round(
+                (first.total_duration_s / 60) * constraints.score_weight_total_minutes
+                + (first.total_wait_s / 60) * constraints.score_weight_wait_minutes
+                + total_walk_m * constraints.score_weight_walk_meters,
+                4,
+            ),
+        )
+        return [
+            schemas.Itinerary(
+                itinerary_id="fixed-boc-1",
+                legs=legs,
+                total_duration_s=first.total_duration_s,
+                total_walk_m=round(total_walk_m, 2),
+                total_wait_s=first.total_wait_s,
+                total_invehicle_s=first.total_invehicle_s,
+                total_transit_distance_m=round(total_transit_distance_m, 2),
+                total_vehicle_distance_m=round(total_transit_distance_m, 2),
+                geometry=aggregate_geometry(legs),
+                score=score,
+            )
+        ]
 
     candidates = planning_service.build_fixed_line_itineraries(session, inputs)
     itineraries: list[schemas.Itinerary] = []
@@ -153,6 +276,8 @@ def _build_on_demand_leg(
         mode="on-demand",
         from_stop_id=None,
         to_stop_id=None,
+        from_coords=schemas.Coordinate(lat=origin[0], lon=origin[1]),
+        to_coords=schemas.Coordinate(lat=destination[0], lon=destination[1]),
         distance_m=round(distance_m, 2),
         duration_s=duration_s,
         geometry=geometry,
@@ -170,10 +295,14 @@ def _build_taxi_leg(
         mode="on-demand",
         from_stop_id=None,
         to_stop_id=None,
+        from_coords=schemas.Coordinate(lat=origin[0], lon=origin[1]),
+        to_coords=schemas.Coordinate(lat=destination[0], lon=destination[1]),
         distance_m=round(distance_m, 2),
         duration_s=duration_s,
         geometry=geometry,
     )
+
+
 
 
 def _combine(
@@ -200,6 +329,15 @@ def _combine(
         total_duration += egress.duration_s or 0
         total_invehicle += egress.duration_s or 0
 
+    legs = merge_walk_on_demand(legs)
+    total_duration = sum(leg.duration_s or 0 for leg in legs)
+    total_walk = sum(
+        leg.distance_m or 0 for leg in legs if leg.mode == "walk"
+    )
+    total_wait = sum(leg.duration_s or 0 for leg in legs if leg.mode == "transfer")
+    total_invehicle = sum(
+        leg.duration_s or 0 for leg in legs if leg.mode not in ("walk", "transfer")
+    )
     score = schemas.ScoreBreakdown(
         total_minutes=round(total_duration / 60, 4),
         wait_minutes=round(total_wait / 60, 4),

@@ -154,11 +154,14 @@ curl -X POST http://localhost:8000/api/plan/multimodal \
     "origin": [35.10207407719635, -90.03855626703466],
     "destination": [35.15419142334027, -89.9346853715579],
     "depart_at_min": 480,
-    "pickup_window_start_min": 380,
-    "pickup_window_end_min": 520,
-    "dropoff_window_end_min": 1000,
-    "service_date": "20250101",
-    "transfer_limit": 5
+    "service_date": "20251001",
+    "transfer_limit": 5,
+    "max_walk_meters": 2000,
+    "max_wait_minutes": 60,
+    "max_invehicle_minutes": 180,
+    "max_total_minutes": 240,
+    "multimodal_limit": 1,
+    "force_taxi": false
   }'
 ```
 
@@ -229,3 +232,16 @@ curl -X POST http://localhost:8000/api/plan/fixed-line \
     "boc_request": false
   }'
 ```
+
+## Multimodal BOC
+curl -X POST http://localhost:8000/api/plan/multimodal \
+  -H "Content-Type: application/json" \
+  -d '{
+    "origin": [35.1495, -90.0490],
+    "destination": [35.40167589770319, -89.4152679475825],
+    "depart_at_min": 480,
+    "service_date": "20251001",
+    "transfer_limit": 5,
+    "boc_request": true,
+    "force_taxi": true
+  }' | jq '.'

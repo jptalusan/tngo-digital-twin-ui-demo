@@ -142,11 +142,19 @@ class FixedLineRequest(BaseModel):
     )
 
 
+class Coordinate(BaseModel):
+    """Coordinate for plotting."""
+    lat: float
+    lon: float
+
+
 class BaseLeg(BaseModel):
     """Common leg fields shared across itineraries and manifests."""
     mode: str
     from_stop_id: Optional[str] = None
     to_stop_id: Optional[str] = None
+    from_coords: Optional[Coordinate] = None
+    to_coords: Optional[Coordinate] = None
     distance_m: Optional[float] = None
     duration_s: Optional[int] = None
     geometry: Optional[str] = None

@@ -10,6 +10,7 @@ from app.schemas import planning as schemas
 from app.services import ondemand as ondemand_service
 from app.crud import ondemand as ondemand_crud
 from app.core.config import settings
+from app.services.leg_merge import merge_walk_on_demand
 
 router = APIRouter(tags=["on-demand"])
 
@@ -132,6 +133,37 @@ def plan_on_demand(
         payload.origin[0], payload.origin[1], payload.destination[0], payload.destination[1]
     )
 
+    itinerary = schemas.Itinerary(
+        itinerary_id="ondemand-1",
+        legs=[
+            schemas.Leg(
+                mode="on-demand",
+                from_stop_id=None,
+                to_stop_id=None,
+                from_coords=schemas.Coordinate(
+                    lat=payload.origin[0], lon=payload.origin[1]
+                ),
+                to_coords=schemas.Coordinate(
+                    lat=payload.destination[0], lon=payload.destination[1]
+                ),
+                distance_m=round(distance_m, 2),
+                duration_s=duration_s,
+                geometry=geometry,
+                route_id=None,
+                trip_id=None,
+            )
+        ],
+        total_duration_s=total_duration_s,
+        total_walk_m=0.0,
+        total_wait_s=total_wait_s,
+        total_invehicle_s=total_invehicle_s,
+        total_transit_distance_m=round(distance_m, 2),
+        total_vehicle_distance_m=round(distance_m, 2),
+        geometry=geometry,
+        score=score,
+    )
+    itinerary.legs = merge_walk_on_demand(itinerary.legs)
+
     return schemas.OnDemandResponse(
         vehicle_id=result.vehicle_id,
         eta_minutes=result.eta_minutes,
@@ -143,29 +175,7 @@ def plan_on_demand(
         total_transit_distance_m=round(distance_m, 2),
         total_vehicle_distance_m=round(distance_m, 2),
         itineraries=[
-            schemas.Itinerary(
-                itinerary_id="ondemand-1",
-                legs=[
-                    schemas.Leg(
-                        mode="on-demand",
-                        from_stop_id=None,
-                        to_stop_id=None,
-                        distance_m=round(distance_m, 2),
-                        duration_s=duration_s,
-                        geometry=geometry,
-                        route_id=None,
-                        trip_id=None,
-                    )
-                ],
-                total_duration_s=total_duration_s,
-                total_walk_m=0.0,
-                total_wait_s=total_wait_s,
-                total_invehicle_s=total_invehicle_s,
-                total_transit_distance_m=round(distance_m, 2),
-                total_vehicle_distance_m=round(distance_m, 2),
-                geometry=geometry,
-                score=score,
-            )
+            itinerary
         ],
         score=score,
         note=result.note,
@@ -210,6 +220,12 @@ def plan_private_vehicle(
                 mode="private",
                 from_stop_id=None,
                 to_stop_id=None,
+                from_coords=schemas.Coordinate(
+                    lat=payload.origin[0], lon=payload.origin[1]
+                ),
+                to_coords=schemas.Coordinate(
+                    lat=payload.destination[0], lon=payload.destination[1]
+                ),
                 distance_m=round(distance_m, 2),
                 duration_s=duration_s,
                 geometry=geometry,

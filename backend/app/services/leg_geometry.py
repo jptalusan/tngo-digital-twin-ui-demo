@@ -34,6 +34,11 @@ def fill_leg_metrics(
         leg: schemas.Leg,
     ) -> tuple[tuple[float, float] | None, tuple[float, float] | None]:
         if leg.from_stop_id is None and leg.to_stop_id is None:
+            if leg.from_coords and leg.to_coords:
+                return (leg.from_coords.lat, leg.from_coords.lon), (
+                    leg.to_coords.lat,
+                    leg.to_coords.lon,
+                )
             return None, None
         if leg.from_stop_id is None and leg.to_stop_id:
             to_coords = stop_map.get(leg.to_stop_id)
@@ -52,6 +57,13 @@ def fill_leg_metrics(
                 return None, None
             return from_coords, to_coords
         return None, None
+
+    def _apply_leg_coords(leg: schemas.Leg) -> None:
+        from_coords, to_coords = _coords_for_leg(leg)
+        if from_coords and leg.from_coords is None:
+            leg.from_coords = schemas.Coordinate(lat=from_coords[0], lon=from_coords[1])
+        if to_coords and leg.to_coords is None:
+            leg.to_coords = schemas.Coordinate(lat=to_coords[0], lon=to_coords[1])
 
     brt_speed_mps = settings.default_brt_speed_kmph * 1000 / 3600
 
@@ -80,6 +92,7 @@ def fill_leg_metrics(
         )
 
     for leg in legs:
+        _apply_leg_coords(leg)
         if leg.geometry is None and leg.mode == "transit" and leg.trip_id and leg.from_stop_id and leg.to_stop_id:
             from_stop = stop_map.get(leg.from_stop_id)
             to_stop = stop_map.get(leg.to_stop_id)
