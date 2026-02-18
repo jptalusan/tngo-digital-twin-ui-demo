@@ -603,6 +603,10 @@ def plan_multimodal(
         if results
         else None
     )
+    results = sorted(results, key=lambda item: item.metrics.overall.score.score)
+    limit = payload.multimodal_number or 3
+    results = results[: max(1, limit)]
+    best = results[0] if results else None
     best_overall = best.metrics.overall if best else None
     return schemas.MultimodalResponse(
         best_itinerary=best.itinerary_id if best else None,

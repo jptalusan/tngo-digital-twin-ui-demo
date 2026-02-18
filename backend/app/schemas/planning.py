@@ -136,6 +136,10 @@ class FixedLineRequest(BaseModel):
         default=None,
         description="Maximum number of fixed-line itineraries to combine in multimodal planning.",
     )
+    multimodal_number: Optional[int] = Field(
+        default=3,
+        description="Maximum number of multimodal itineraries to return (best-first).",
+    )
     force_taxi: Optional[bool] = Field(
         default=False,
         description="If true, multimodal uses direct taxi legs instead of on-demand insertion.",
