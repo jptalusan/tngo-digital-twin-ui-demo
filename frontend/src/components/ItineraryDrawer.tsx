@@ -57,6 +57,12 @@ export function ItineraryDrawer({
     if (typeof value === 'string') return value;
     return JSON.stringify(value);
   };
+  const truncateAddress = (value: unknown) => {
+    if (typeof value !== 'string') return formatValue(value);
+    const parts = value.split(',').map((part) => part.trim()).filter(Boolean);
+    if (parts.length <= 4) return parts.join(', ');
+    return parts.slice(0, 4).join(', ');
+  };
 
   const formatCoord = (v: number | null | undefined) =>
     v != null ? v.toFixed(3) : '—';
@@ -172,7 +178,7 @@ export function ItineraryDrawer({
                                 <div>
                                   <div className="uppercase tracking-wide text-[10px] text-gray-400">From</div>
                                   <div className="text-gray-700 truncate">
-                                    {(leg as any)?.from_address ?? (leg as any)?.from_stop_id ?? '—'}
+                                    {truncateAddress((leg as any)?.from_address ?? (leg as any)?.from_stop_id ?? '—')}
                                   </div>
                                   {(leg as any)?.from_coords && (
                                     <div className="text-[10px] text-gray-400">
@@ -183,7 +189,7 @@ export function ItineraryDrawer({
                                 <div>
                                   <div className="uppercase tracking-wide text-[10px] text-gray-400">To</div>
                                   <div className="text-gray-700 truncate">
-                                    {(leg as any)?.to_address ?? (leg as any)?.to_stop_id ?? '—'}
+                                    {truncateAddress((leg as any)?.to_address ?? (leg as any)?.to_stop_id ?? '—')}
                                   </div>
                                   {(leg as any)?.to_coords && (
                                     <div className="text-[10px] text-gray-400">

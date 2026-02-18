@@ -118,6 +118,11 @@ export default function App() {
   }, [decodePolyline]);
   const formatCoordinates = (coordinates: [number, number]) =>
     `${coordinates[0].toFixed(5)}, ${coordinates[1].toFixed(5)}`;
+  const truncateAddress = (address: string) => {
+    const parts = address.split(',').map((part) => part.trim()).filter(Boolean);
+    if (parts.length <= 4) return parts.join(', ');
+    return parts.slice(0, 4).join(', ');
+  };
 
   // Generate markers for map
   const markers = useMemo(() => {
@@ -377,7 +382,8 @@ export default function App() {
     apiService
       .reverseGeocode({ coordinates: [coords[0], coords[1]] })
       .then((res) => {
-        setOrigin({ ...location, name: res.name || res.address || fallbackName });
+        const address = res.address || res.name || fallbackName;
+        setOrigin({ ...location, name: truncateAddress(address) });
       })
       .catch(() => {});
   };
@@ -401,7 +407,8 @@ export default function App() {
     apiService
       .reverseGeocode({ coordinates: [coords[0], coords[1]] })
       .then((res) => {
-        setDestination({ ...location, name: res.name || res.address || fallbackName });
+        const address = res.address || res.name || fallbackName;
+        setDestination({ ...location, name: truncateAddress(address) });
       })
       .catch(() => {});
   };
