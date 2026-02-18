@@ -40,6 +40,8 @@ export default function App() {
   const [draftDepotCapacity, setDraftDepotCapacity] = useState(4);
   const [depotGeocoding, setDepotGeocoding] = useState(false);
   const [depotZoneError, setDepotZoneError] = useState<string | null>(null);
+  const [selectedDepotId, setSelectedDepotId] = useState<string | null>(null);
+  const [wizardPinnedHex, setWizardPinnedHex] = useState<string | null>(null);
 
   const mapLoading = loading || evaluating;
   const loadingLabel = loading ? 'Loading routes...' : 'Evaluating service...';
@@ -143,6 +145,7 @@ export default function App() {
     setDraftDepotVehicles(defaults.vehicles);
     setDraftDepotCapacity(defaults.capacity);
     setDepotZoneError(null);
+    setWizardPinnedHex(null);
   }, []);
 
   const closeDepotWizard = useCallback(() => {
@@ -151,6 +154,7 @@ export default function App() {
     setDraftDepotLocation(null);
     setDraftDepotHexes([]);
     setDepotZoneError(null);
+    setWizardPinnedHex(null);
   }, []);
 
   const getHexNeighbors = useCallback((hexId: string) => {
@@ -185,33 +189,31 @@ export default function App() {
 
   const toggleDepotHex = useCallback((hexId: string) => {
     setDraftDepotHexes((prev) => {
-      console.log('[hex] toggle', hexId, 'prev', prev.length);
       const next = new Set(prev);
+      if (wizardPinnedHex && hexId === wizardPinnedHex) {
+        return prev;
+      }
       if (next.has(hexId)) {
         next.delete(hexId);
         setDepotZoneError(null);
-        console.log('[hex] removed', hexId, 'next', next.size);
         return Array.from(next);
       }
       if (next.size === 0) {
         next.add(hexId);
         setDepotZoneError(null);
-        console.log('[hex] added first', hexId, 'next', next.size);
         return Array.from(next);
       }
       const neighbors = getHexNeighbors(hexId).filter((neighbor) => neighbor !== hexId);
       const isAdjacent = neighbors.some((neighbor) => next.has(neighbor));
       if (!isAdjacent) {
         setDepotZoneError('Selection must be contiguous (touching sides only).');
-        console.log('[hex] rejected non-adjacent', hexId);
         return prev;
       }
       next.add(hexId);
       setDepotZoneError(null);
-      console.log('[hex] added', hexId, 'next', next.size);
       return Array.from(next);
     });
-  }, [getHexNeighbors]);
+  }, [getHexNeighbors, wizardPinnedHex]);
 
   // Generate markers for map
   const markers = useMemo(() => {
@@ -250,9 +252,28 @@ export default function App() {
           label: 'D*'
         });
       }
+      if (!depotWizardOpen && selectedDepotId) {
+        const selected = depots.find((depot) => depot.id === selectedDepotId);
+        if (selected) {
+          m.push({
+            id: `selected-${selected.id}`,
+            coordinates: selected.coordinates,
+            type: 'depot',
+            label: 'D'
+          });
+        }
+      }
     }
     return m;
-  }, [viewMode, origin, destination, depots, depotWizardOpen, draftDepotLocation]);
+  }, [viewMode, origin, destination, depots, depotWizardOpen, draftDepotLocation, selectedDepotId]);
+  const depotHexes = useMemo(
+    () => depots.flatMap((depot) => depot.serviceZoneHexes ?? []),
+    [depots]
+  );
+  const activeDepotHexes = useMemo(() => {
+    if (!selectedDepotId) return [];
+    return depots.find((depot) => depot.id === selectedDepotId)?.serviceZoneHexes ?? [];
+  }, [depots, selectedDepotId]);
 
   useEffect(() => {
     if (itineraries.length === 0) {
@@ -458,6 +479,12 @@ export default function App() {
           ? (h3 as any).latLngToCell(coordinates[0], coordinates[1], resolution)
           : (h3 as any).geoToH3(coordinates[0], coordinates[1], resolution);
         if (hexId) {
+          if (depotHexes.includes(hexId)) {
+            setDepotZoneError('That zone is already assigned to another depot.');
+            window.alert('You cannot select a zone twice.');
+            setContextMenu(null);
+            return;
+          }
           toggleDepotHex(hexId);
         }
       } catch (error) {
@@ -470,6 +497,18 @@ export default function App() {
     if (depotWizardOpen && depotWizardStep === 'pick-location') {
       const fallbackName = formatCoordinates(coordinates);
       setDraftDepotLocation({ coords: coordinates, address: fallbackName });
+      try {
+        const resolution = Number((import.meta.env.VITE_DEMAND_HEX_RES as string | undefined) ?? 7);
+        const hexId = (h3 as any).latLngToCell
+          ? (h3 as any).latLngToCell(coordinates[0], coordinates[1], resolution)
+          : (h3 as any).geoToH3(coordinates[0], coordinates[1], resolution);
+        if (hexId) {
+          setWizardPinnedHex(hexId);
+          setDraftDepotHexes([hexId]);
+        }
+      } catch (error) {
+        console.warn('[hex] failed to pin initial hex', error);
+      }
       setDepotGeocoding(true);
       apiService
         .reverseGeocode({ coordinates: [coordinates[0], coordinates[1]] })
@@ -542,20 +581,42 @@ export default function App() {
 
   const handleRemoveDepot = (id: string) => {
     setDepots(depots.filter(d => d.id !== id));
+    if (selectedDepotId === id) {
+      setSelectedDepotId(null);
+    }
   };
 
-  const handleSaveDepot = useCallback(() => {
+  const handleSaveDepot = useCallback(async () => {
     if (!draftDepotLocation) return;
-    const depot: Depot = {
-      id: `depot-${Date.now()}`,
-      coordinates: draftDepotLocation.coords,
-      vehicles: draftDepotVehicles,
-      capacity: draftDepotCapacity,
-      address: draftDepotLocation.address,
-      serviceZoneHexes: draftDepotHexes
-    };
-    setDepots((prev) => [...prev, depot]);
-    closeDepotWizard();
+    const resolution = draftDepotHexes[0]
+      ? ((h3 as any).getResolution
+        ? (h3 as any).getResolution(draftDepotHexes[0])
+        : (h3 as any).h3GetResolution?.(draftDepotHexes[0]))
+      : undefined;
+    try {
+      const response = await apiService.createDepot({
+        coordinates: draftDepotLocation.coords,
+        address: draftDepotLocation.address,
+        vehicles: draftDepotVehicles,
+        capacity: draftDepotCapacity,
+        service_zone_hex_ids: draftDepotHexes,
+        h3_resolution: typeof resolution === 'number' ? resolution : undefined
+      });
+      console.log('[api] createDepot response:', response);
+      const depot: Depot = {
+        id: response.depot_id ?? `depot-${Date.now()}`,
+        coordinates: [response.lat, response.lon],
+        vehicles: response.vehicle_count ?? draftDepotVehicles,
+        capacity: response.capacity ?? draftDepotCapacity,
+        address: response.address ?? draftDepotLocation.address,
+        serviceZoneHexes: draftDepotHexes
+      };
+      setDepots((prev) => [...prev, depot]);
+      setSelectedDepotId(depot.id);
+      closeDepotWizard();
+    } catch (error) {
+      console.error('[api] createDepot error:', error);
+    }
   }, [
     draftDepotLocation,
     draftDepotVehicles,
@@ -746,8 +807,10 @@ export default function App() {
                   onMapRightClick={handleMapRightClick}
                   highlightedSegment={highlightedSegment}
                   layers={mapLayers}
-                  showHexGrid={viewMode === 'operator' && depotWizardOpen && depotWizardStep === 'select-zone'}
-                  selectedHexes={draftDepotHexes}
+                  showHexGrid={viewMode === 'operator' && (depotWizardOpen || depots.length > 0)}
+                  selectedHexes={depotWizardOpen ? draftDepotHexes : []}
+                  establishedHexes={depotHexes}
+                  activeHexes={activeDepotHexes}
                   allowMapPan={!(depotWizardOpen && depotWizardStep === 'select-zone')}
                 />
                 {mapLoading && <MapLoadingOverlay />}
@@ -907,14 +970,30 @@ export default function App() {
             </div>
             {depots.length > 0 && (
               <div
-                className="h-full shrink-0 border-l bg-white shadow-xl"
-                style={{ width: '26vw', maxWidth: '26vw', minWidth: '26vw' }}
+                className="h-full shrink-0 border-l bg-white shadow-xl flex flex-col"
+                style={{
+                  width: '26vw',
+                  maxWidth: '26vw',
+                  minWidth: '26vw',
+                  paddingBottom: depotWizardOpen ? '220px' : undefined
+                }}
               >
                 <div className="h-full flex flex-col">
                   <div className="px-4 py-3 border-b text-sm font-semibold text-slate-700">Depots</div>
                   <div className="flex-1 overflow-y-auto p-4 space-y-3">
                     {depots.map((depot, index) => (
-                      <div key={depot.id} className="rounded-lg border border-slate-200 p-3">
+                      <button
+                        key={depot.id}
+                        type="button"
+                        onClick={() =>
+                          setSelectedDepotId((prev) => (prev === depot.id ? null : depot.id))
+                        }
+                        className={`w-full text-left rounded-lg border p-3 transition-colors ${
+                          selectedDepotId === depot.id
+                            ? 'border-blue-500 bg-blue-50'
+                            : 'border-slate-200 hover:border-slate-300'
+                        }`}
+                      >
                         <div className="text-sm font-semibold text-slate-800">
                           Depot {index + 1}
                         </div>
@@ -933,10 +1012,15 @@ export default function App() {
                             {depot.serviceZoneHexes?.length ?? 0}
                           </div>
                         </div>
-                      </div>
+                      </button>
                     ))}
                   </div>
                 </div>
+                {depotWizardOpen && (
+                  <div className="border-t border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-600">
+                    Wizard active — drawer pinned above.
+                  </div>
+                )}
               </div>
             )}
           </div>

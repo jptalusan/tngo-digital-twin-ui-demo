@@ -20,6 +20,8 @@ export type OnDemandResponse = z.infer<typeof schemas.OnDemandResponse>;
 export type MultimodalResponse = z.infer<typeof schemas.MultimodalResponse>;
 export type PrivateVehicleRequest = z.infer<typeof schemas.PrivateVehicleRequest>;
 export type PrivateVehicleResponse = z.infer<typeof schemas.PrivateVehicleResponse>;
+export type CreateDepotRequest = z.infer<typeof schemas.CreateDepotRequest>;
+export type CreateDepotResponse = z.infer<typeof schemas.CreateDepotResponse>;
 
 const apiBase =
   (import.meta.env.VITE_API_URL as string | undefined) ??
@@ -69,6 +71,11 @@ class ApiService {
   async planPrivateVehicle(requestBody: PrivateVehicleRequest): Promise<PrivateVehicleResponse> {
     console.log('[api] planPrivateVehicle body:', requestBody);
     return apiClient.plan_private_vehicle_api_plan_private_vehicle_post(requestBody);
+  }
+
+  async createDepot(requestBody: CreateDepotRequest): Promise<CreateDepotResponse> {
+    console.log('[api] createDepot body:', requestBody);
+    return apiClient.create_depot_api_on_demand_depots_post(requestBody);
   }
 }
 

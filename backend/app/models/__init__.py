@@ -1,17 +1,33 @@
 from app.models.base import Base
-from app.models.gtfs import Agency, Route, Stop, Calendar, CalendarDate, Shape, ShapePoint, Trip, StopTime
+from app.models.gtfs import (
+    GtfsFeed,
+    GtfsJob,
+    Agency,
+    Route,
+    Stop,
+    Calendar,
+    CalendarDate,
+    Shape,
+    ShapePoint,
+    Trip,
+    StopTime,
+)
 from app.models.ondemand import (
     Depot,
-    Vehicle,
+    OnDemandServiceZone,
+    OnDemandVehicle,
     VehicleSchedule,
     OnDemandRequest,
     OnDemandTrip,
     VehicleRoute,
     VehicleRouteStop,
 )
+from app.models.user_demand import UserDemand
 
 __all__ = [
     "Base",
+    "GtfsFeed",
+    "GtfsJob",
     "Agency",
     "Route",
     "Stop",
@@ -22,10 +38,12 @@ __all__ = [
     "Trip",
     "StopTime",
     "Depot",
-    "Vehicle",
+    "OnDemandServiceZone",
+    "OnDemandVehicle",
     "VehicleSchedule",
     "OnDemandRequest",
     "OnDemandTrip",
     "VehicleRoute",
     "VehicleRouteStop",
+    "UserDemand",
 ]

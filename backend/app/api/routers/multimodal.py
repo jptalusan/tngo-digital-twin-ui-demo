@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
+from geoalchemy2.functions import ST_X, ST_Y
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -519,25 +520,29 @@ def plan_multimodal(
                 first_leg = base.legs[0]
                 last_leg = base.legs[-1]
                 if first_leg.to_stop_id is not None:
-                    stop = (
+                    stop_row = (
                         session.execute(
-                            select(Stop).where(Stop.stop_id == first_leg.to_stop_id)
+                            select(
+                                ST_Y(Stop.location).label("lat"),
+                                ST_X(Stop.location).label("lon"),
+                            ).where(Stop.stop_id == first_leg.to_stop_id, Stop.location.is_not(None))
                         )
-                        .scalars()
                         .first()
                     )
-                    if stop and stop.lat is not None and stop.lon is not None:
-                        access_leg = build_leg(payload.origin, [stop.lat, stop.lon]) if build_leg else None
+                    if stop_row:
+                        access_leg = build_leg(payload.origin, [stop_row.lat, stop_row.lon]) if build_leg else None
                 if last_leg.from_stop_id is not None:
-                    stop = (
+                    stop_row = (
                         session.execute(
-                            select(Stop).where(Stop.stop_id == last_leg.from_stop_id)
+                            select(
+                                ST_Y(Stop.location).label("lat"),
+                                ST_X(Stop.location).label("lon"),
+                            ).where(Stop.stop_id == last_leg.from_stop_id, Stop.location.is_not(None))
                         )
-                        .scalars()
                         .first()
                     )
-                    if stop and stop.lat is not None and stop.lon is not None:
-                        egress_leg = build_leg([stop.lat, stop.lon], payload.destination) if build_leg else None
+                    if stop_row:
+                        egress_leg = build_leg([stop_row.lat, stop_row.lon], payload.destination) if build_leg else None
 
             combined = _combine(access_leg, base, None, weight_total, weight_wait, weight_walk)
             fill_leg_addresses(combined.legs)

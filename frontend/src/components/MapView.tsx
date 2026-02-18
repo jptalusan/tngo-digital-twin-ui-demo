@@ -48,6 +48,8 @@ interface MapViewProps {
   layers?: MapLayer[];
   showHexGrid?: boolean;
   selectedHexes?: string[];
+  establishedHexes?: string[];
+  activeHexes?: string[];
   onHexClick?: (hexId: string) => void;
   allowMapPan?: boolean;
 }
@@ -61,6 +63,8 @@ export function MapView({
   layers = [],
   showHexGrid = false,
   selectedHexes = [],
+  establishedHexes = [],
+  activeHexes = [],
   onHexClick,
   allowMapPan = true
 }: MapViewProps) {
@@ -180,16 +184,32 @@ export function MapView({
       });
       hexLayer.clearLayers();
       const selected = new Set(selectedHexes);
+      const established = new Set(establishedHexes);
+      const active = new Set(activeHexes);
 
       hexes.forEach((hexId) => {
         const isSelected = selected.has(hexId);
+        const isEstablished = established.has(hexId);
+        const isActive = active.has(hexId);
         const boundary = h3.cellToBoundary(hexId, true).map(([lng, lat]) => [lat, lng] as [number, number]);
         const polygon = L.polygon(boundary, {
-          color: isSelected ? '#1d4ed8' : '#2563eb',
-          weight: isSelected ? 2 : 1,
-          opacity: isSelected ? 0.9 : 0.5,
-          fillColor: isSelected ? '#60a5fa' : '#93c5fd',
-          fillOpacity: isSelected ? 0.35 : 0.12,
+          color: isActive
+            ? '#1d4ed8'
+            : isEstablished
+            ? '#b91c1c'
+            : isSelected
+            ? '#1d4ed8'
+            : '#2563eb',
+          weight: isActive ? 2 : isSelected ? 2 : 1,
+          opacity: isActive ? 0.9 : isSelected ? 0.9 : 0.5,
+          fillColor: isActive
+            ? '#60a5fa'
+            : isEstablished
+            ? '#fca5a5'
+            : isSelected
+            ? '#60a5fa'
+            : '#93c5fd',
+          fillOpacity: isActive ? 0.35 : isEstablished ? 0.4 : isSelected ? 0.35 : 0.12,
           interactive: false,
           bubblingMouseEvents: false,
           pane: 'hexes'

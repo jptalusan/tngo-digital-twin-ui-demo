@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional
 
+from geoalchemy2.functions import ST_DWithin, ST_Transform, ST_X, ST_Y
 from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 
@@ -10,6 +11,8 @@ from app.core.config import settings
 from app.logging.config import get_logger
 from app.models.gtfs import Stop, StopTime, Trip
 from app.crud import gtfs as gtfs_crud
+
+_SRID_M = 3857
 
 
 @dataclass(frozen=True)
@@ -89,36 +92,50 @@ def find_nearby_stops(
     if max_distance_m <= 0:
         return []
 
-    dlat = max_distance_m / 111_320
-    dlon = max_distance_m / (111_320 * max(0.1, abs(_cos_deg(lat))))
+    origin_wgs = func.ST_SetSRID(func.ST_MakePoint(lon, lat), 4326)
+    origin_m = func.ST_Transform(origin_wgs, _SRID_M)
 
-    stops = (
+    rows = (
         session.execute(
-            select(Stop).where(
-                Stop.lat.is_not(None),
-                Stop.lon.is_not(None),
-                Stop.lat.between(lat - dlat, lat + dlat),
-                Stop.lon.between(lon - dlon, lon + dlon),
+            select(
+                Stop,
+                ST_X(Stop.location).label("stop_lon"),
+                ST_Y(Stop.location).label("stop_lat"),
+            ).where(
+                Stop.location.is_not(None),
+                ST_DWithin(
+                    ST_Transform(Stop.location, _SRID_M),
+                    origin_m,
+                    max_distance_m,
+                ),
             )
         )
-        .scalars()
         .all()
     )
 
     candidates: list[StopCandidate] = []
-    for stop in stops:
-        if stop.lat is None or stop.lon is None:
-            continue
-        dist = get_distance_m(lat, lon, stop.lat, stop.lon)
-        if dist <= max_distance_m:
-            walk_duration = int(dist / settings.default_walk_speed_mps)
-            candidates.append(StopCandidate(stop=stop, distance_m=dist, walk_duration_s=walk_duration))
+    for row in rows:
+        stop, stop_lon, stop_lat = row
+        dist = get_distance_m(lat, lon, stop_lat, stop_lon)
+        walk_duration = int(dist / settings.default_walk_speed_mps)
+        candidates.append(StopCandidate(stop=stop, distance_m=dist, walk_duration_s=walk_duration))
 
     if extra_stop_ids:
-        extra_stops = gtfs_crud.load_stops_by_ids(session, extra_stop_ids)
-        for stop in extra_stops:
-            if stop.lat is None or stop.lon is None:
-                continue
+        extra_rows = (
+            session.execute(
+                select(
+                    Stop,
+                    ST_X(Stop.location).label("stop_lon"),
+                    ST_Y(Stop.location).label("stop_lat"),
+                ).where(
+                    Stop.stop_id.in_(extra_stop_ids),
+                    Stop.location.is_not(None),
+                )
+            )
+            .all()
+        )
+        for row in extra_rows:
+            stop, stop_lon, stop_lat = row
             candidates.append(StopCandidate(stop=stop, distance_m=0.0, walk_duration_s=0))
 
     # Deduplicate by stop_id, prefer shorter walk duration
@@ -440,8 +457,20 @@ def _build_itineraries_with_transfers(
 
     # Build nearby stop map for transfer between different stop_ids
     stop_ids = set(stop_index.keys())
-    stops = gtfs_crud.load_stops_by_ids(session, stop_ids)
-    stop_coords = {s.stop_id: (s.lat, s.lon) for s in stops if s.lat is not None and s.lon is not None}
+    coord_rows = (
+        session.execute(
+            select(
+                Stop.stop_id,
+                ST_Y(Stop.location).label("stop_lat"),
+                ST_X(Stop.location).label("stop_lon"),
+            ).where(
+                Stop.stop_id.in_(stop_ids),
+                Stop.location.is_not(None),
+            )
+        )
+        .all()
+    )
+    stop_coords = {row.stop_id: (row.stop_lat, row.stop_lon) for row in coord_rows}
     transfer_radius = settings.transfer_walk_radius_m
     transfer_radius_lat = transfer_radius / 111_320
     transfer_radius_lon_factor = 1 / 111_320

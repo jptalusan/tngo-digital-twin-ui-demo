@@ -17,13 +17,31 @@ class Depot(Base):
     name: Mapped[str] = mapped_column(String)
     lat: Mapped[float] = mapped_column(Float)
     lon: Mapped[float] = mapped_column(Float)
-    service_zone: Mapped[Optional[str]] = mapped_column(Geometry("POLYGON", srid=4326), nullable=True)
+    address: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 
-    vehicles: Mapped[list["Vehicle"]] = relationship(back_populates="depot")
+    vehicles: Mapped[list["OnDemandVehicle"]] = relationship(back_populates="depot")
+    service_zones: Mapped[list["OnDemandServiceZone"]] = relationship(back_populates="depot")
 
 
-class Vehicle(Base):
-    __tablename__ = "vehicle"
+class OnDemandServiceZone(Base):
+    """One row per H3 hexagon that belongs to a depot's service zone."""
+
+    __tablename__ = "ondemand_service_zone"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    depot_id: Mapped[str] = mapped_column(String, ForeignKey("depot.depot_id"), index=True)
+    hex_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    h3_resolution: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    # Hex boundary stored as a polygon for PostGIS spatial queries
+    boundary: Mapped[Optional[object]] = mapped_column(
+        Geometry("POLYGON", srid=4326), nullable=True
+    )
+
+    depot: Mapped[Optional[Depot]] = relationship(back_populates="service_zones")
+
+
+class OnDemandVehicle(Base):
+    __tablename__ = "ondemand_vehicle"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     vehicle_id: Mapped[str] = mapped_column(String, unique=True, index=True)
@@ -39,12 +57,12 @@ class VehicleSchedule(Base):
     __tablename__ = "vehicle_schedule"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    vehicle_id: Mapped[str] = mapped_column(String, ForeignKey("vehicle.vehicle_id"), index=True)
+    vehicle_id: Mapped[str] = mapped_column(String, ForeignKey("ondemand_vehicle.vehicle_id"), index=True)
     service_days: Mapped[str] = mapped_column(String)
     start_time: Mapped[str] = mapped_column(String)
     end_time: Mapped[str] = mapped_column(String)
 
-    vehicle: Mapped[Optional[Vehicle]] = relationship(back_populates="schedules")
+    vehicle: Mapped[Optional[OnDemandVehicle]] = relationship(back_populates="schedules")
 
 
 class OnDemandRequest(Base):
@@ -78,7 +96,7 @@ class VehicleRoute(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     route_id: Mapped[str] = mapped_column(String, unique=True, index=True)
-    vehicle_id: Mapped[str] = mapped_column(String, ForeignKey("vehicle.vehicle_id"), index=True)
+    vehicle_id: Mapped[str] = mapped_column(String, ForeignKey("ondemand_vehicle.vehicle_id"), index=True)
     status: Mapped[str] = mapped_column(String, default="active")
     updated_at: Mapped[Optional[DateTime]] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

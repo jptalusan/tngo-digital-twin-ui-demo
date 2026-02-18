@@ -2,10 +2,15 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import select
+from geoalchemy2 import WKTElement
+from geoalchemy2.functions import ST_DWithin, ST_X, ST_Y
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.models.gtfs import Agency, Calendar, CalendarDate, ShapePoint, Stop, StopTime, Trip
+from app.models.gtfs import Agency, Calendar, CalendarDate, GtfsFeed, ShapePoint, Stop, StopTime, Trip
+
+
+ShapeCoord = tuple[float, float]  # (lat, lon)
 
 
 def select_stops_by_name(query: str):
@@ -114,6 +119,28 @@ def load_shape_points_for_trip(session: Session, trip_id: str) -> list[ShapePoin
     )
 
 
+def load_shape_coords_for_trip(session: Session, trip_id: str) -> list[ShapeCoord]:
+    """Return ordered (lat, lon) tuples for the shape associated with trip_id."""
+    trip = session.execute(select(Trip).where(Trip.trip_id == trip_id)).scalars().first()
+    if trip is None or not trip.shape_id:
+        return []
+    rows = (
+        session.execute(
+            select(
+                ST_Y(ShapePoint.geom).label("lat"),
+                ST_X(ShapePoint.geom).label("lon"),
+            )
+            .where(
+                ShapePoint.shape_id == trip.shape_id,
+                ShapePoint.geom.is_not(None),
+            )
+            .order_by(ShapePoint.sequence)
+        )
+        .all()
+    )
+    return [(row.lat, row.lon) for row in rows]
+
+
 def load_stops_by_ids(session: Session, stop_ids: set[str]) -> list[Stop]:
     if not stop_ids:
         return []
@@ -128,36 +155,31 @@ def find_stop_ids_by_prefix_near(
     max_distance_m: float,
     limit: int = 20,
 ) -> set[str]:
-    dlat = max_distance_m / 111_320
-    dlon = max_distance_m / (111_320 * max(0.1, abs(_cos_deg(lat))))
-
-    stops = (
+    """Return up to `limit` stop_ids whose prefix matches and that fall within max_distance_m."""
+    point = WKTElement(f"POINT({lon} {lat})", srid=4326)
+    rows = (
         session.execute(
-            select(Stop).where(
+            select(Stop.stop_id, ST_X(Stop.location).label("lon"), ST_Y(Stop.location).label("lat"))
+            .where(
                 Stop.stop_id.like(f"{prefix}%"),
-                Stop.lat.is_not(None),
-                Stop.lon.is_not(None),
-                Stop.lat.between(lat - dlat, lat + dlat),
-                Stop.lon.between(lon - dlon, lon + dlon),
+                Stop.location.is_not(None),
+                ST_DWithin(Stop.location.ST_Transform(3857), func.ST_Transform(func.ST_GeomFromText(f"POINT({lon} {lat})", 4326), 3857), max_distance_m),
             )
         )
-        .scalars()
         .all()
     )
 
-    def dist(a, b, c, d):
-        import math
+    import math
 
+    def _dist(a_lat, a_lon, b_lat, b_lon):
         rad = math.pi / 180
-        dlat = (c - a) * rad
-        dlon = (d - b) * rad
-        x = math.sin(dlat / 2) ** 2 + math.cos(a * rad) * math.cos(c * rad) * math.sin(
-            dlon / 2
-        ) ** 2
-        return 6371000 * 2 * math.atan2(math.sqrt(x), math.sqrt(1 - x))
+        dlat = (b_lat - a_lat) * rad
+        dlon = (b_lon - a_lon) * rad
+        x = math.sin(dlat / 2) ** 2 + math.cos(a_lat * rad) * math.cos(b_lat * rad) * math.sin(dlon / 2) ** 2
+        return 6_371_000 * 2 * math.atan2(math.sqrt(x), math.sqrt(1 - x))
 
     ranked = sorted(
-        [(dist(lat, lon, s.lat, s.lon), s.stop_id) for s in stops],
+        [(_dist(lat, lon, row.lat, row.lon), row.stop_id) for row in rows],
         key=lambda item: item[0],
     )
     return {sid for _, sid in ranked[:limit]}
@@ -170,17 +192,7 @@ def find_nearest_stop_by_prefix(
     lon: float,
     max_distance_m: float,
 ) -> Stop | None:
-    stop_ids = find_stop_ids_by_prefix_near(
-        session, prefix, lat, lon, max_distance_m, limit=1
-    )
+    stop_ids = find_stop_ids_by_prefix_near(session, prefix, lat, lon, max_distance_m, limit=1)
     if not stop_ids:
         return None
-    return (
-        session.execute(select(Stop).where(Stop.stop_id.in_(stop_ids))).scalars().first()
-    )
-
-
-def _cos_deg(deg: float) -> float:
-    import math
-
-    return math.cos(deg * math.pi / 180)
+    return session.execute(select(Stop).where(Stop.stop_id.in_(stop_ids))).scalars().first()

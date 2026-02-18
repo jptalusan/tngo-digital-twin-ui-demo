@@ -3,10 +3,13 @@ from __future__ import annotations
 from typing import Optional
 
 import httpx
+from geoalchemy2.functions import ST_X, ST_Y
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.crud import gtfs as gtfs_crud
+from app.models.gtfs import Stop
 from app.schemas import planning as schemas
 from app.services.planning import get_distance_m
 
@@ -69,11 +72,17 @@ def fill_leg_metrics(
         if leg.to_stop_id:
             stop_ids.add(leg.to_stop_id)
 
-    stop_map = {
-        stop.stop_id: (stop.lat, stop.lon)
-        for stop in gtfs_crud.load_stops_by_ids(session, stop_ids)
-        if stop.lat is not None and stop.lon is not None
-    }
+    coord_rows = (
+        session.execute(
+            select(
+                Stop.stop_id,
+                ST_Y(Stop.location).label("lat"),
+                ST_X(Stop.location).label("lon"),
+            ).where(Stop.stop_id.in_(stop_ids), Stop.location.is_not(None))
+        )
+        .all()
+    ) if stop_ids else []
+    stop_map = {row.stop_id: (row.lat, row.lon) for row in coord_rows}
 
     def _coords_for_leg(
         leg: schemas.Leg,
@@ -141,20 +150,19 @@ def fill_leg_metrics(
         if leg.geometry is None and leg.mode == "transit" and leg.trip_id and leg.from_stop_id and leg.to_stop_id:
             from_stop = stop_map.get(leg.from_stop_id)
             to_stop = stop_map.get(leg.to_stop_id)
-            shape_points = gtfs_crud.load_shape_points_for_trip(session, leg.trip_id)
-            if shape_points and from_stop and to_stop:
-                from_idx = _nearest_shape_index(shape_points, from_stop[0], from_stop[1])
-                to_idx = _nearest_shape_index(shape_points, to_stop[0], to_stop[1])
+            shape_coords = gtfs_crud.load_shape_coords_for_trip(session, leg.trip_id)
+            if shape_coords and from_stop and to_stop:
+                from_idx = _nearest_shape_index(shape_coords, from_stop[0], from_stop[1])
+                to_idx = _nearest_shape_index(shape_coords, to_stop[0], to_stop[1])
                 if from_idx is not None and to_idx is not None:
                     if from_idx <= to_idx:
-                        slice_points = shape_points[from_idx : to_idx + 1]
+                        slice_coords = shape_coords[from_idx : to_idx + 1]
                     else:
-                        slice_points = list(reversed(shape_points[to_idx : from_idx + 1]))
-                    coords = [(pt.lat, pt.lon) for pt in slice_points]
-                    if coords:
-                        leg.geometry = _encode_polyline(coords)
+                        slice_coords = list(reversed(shape_coords[to_idx : from_idx + 1]))
+                    if slice_coords:
+                        leg.geometry = _encode_polyline(slice_coords)
                         if leg.distance_m is None:
-                            leg.distance_m = round(_polyline_distance_m(coords), 2)
+                            leg.distance_m = round(_polyline_distance_m(slice_coords), 2)
 
         if leg.distance_m is None or leg.duration_s is None:
             from_coords, to_coords = _coords_for_leg(leg)
@@ -274,12 +282,12 @@ def aggregate_geometry(legs: list[schemas.Leg]) -> Optional[str]:
 
 
 def _nearest_shape_index(
-    shape_points: list, lat: float, lon: float
+    shape_coords: list[tuple[float, float]], lat: float, lon: float
 ) -> Optional[int]:
     best_idx = None
     best_dist = None
-    for idx, pt in enumerate(shape_points):
-        dist = get_distance_m(lat, lon, pt.lat, pt.lon)
+    for idx, (pt_lat, pt_lon) in enumerate(shape_coords):
+        dist = get_distance_m(lat, lon, pt_lat, pt_lon)
         if best_dist is None or dist < best_dist:
             best_dist = dist
             best_idx = idx

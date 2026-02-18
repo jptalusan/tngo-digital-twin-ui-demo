@@ -3,6 +3,7 @@ import sys
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
+import app.models  # noqa: F401 — registers all ORM models with Base.metadata
 from app.db import init_db
 
 

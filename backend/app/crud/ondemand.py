@@ -11,8 +11,9 @@ from sqlalchemy.orm import Session
 from app.models.ondemand import (
     Depot,
     OnDemandRequest,
+    OnDemandServiceZone,
     OnDemandTrip,
-    Vehicle,
+    OnDemandVehicle,
     VehicleRoute,
     VehicleRouteStop,
     VehicleSchedule,
@@ -26,15 +27,26 @@ def load_vehicle_states(
     origin_lon: float,
 ) -> list[ondemand_service.VehicleState]:
     point = WKTElement(f"POINT({origin_lon} {origin_lat})", srid=4326)
-    query = (
-        select(Vehicle, Depot)
-        .join(Depot, Depot.depot_id == Vehicle.depot_id)
-        .where((Depot.service_zone.is_(None)) | (Depot.service_zone.ST_Contains(point)))
+    # A depot is eligible when it has no service zone rows at all (open/unzoned),
+    # or when the origin point falls within any of its hex boundaries.
+    depots_with_match = (
+        select(OnDemandServiceZone.depot_id)
+        .where(OnDemandServiceZone.boundary.ST_Contains(point))
     )
-    rows = session.execute(query).all()
+    depots_without_zones = (
+        select(Depot.depot_id)
+        .where(~Depot.depot_id.in_(select(OnDemandServiceZone.depot_id)))
+    )
+    eligible_depot_ids = depots_with_match.union(depots_without_zones).subquery()
+
+    query = (
+        select(OnDemandVehicle)
+        .where(OnDemandVehicle.depot_id.in_(select(eligible_depot_ids)))
+    )
+    rows = session.execute(query).scalars().all()
 
     vehicles: list[ondemand_service.VehicleState] = []
-    for vehicle, _ in rows:
+    for vehicle in rows:
         schedules = (
             session.execute(
                 select(VehicleSchedule).where(VehicleSchedule.vehicle_id == vehicle.vehicle_id)
@@ -260,6 +272,47 @@ def summarize_all_requests(session: Session) -> tuple[int, int, int, int, int]:
     unassigned = max(0, total_count - assigned_count)
     unfulfilled = max(0, assigned_count - fulfilled)
     return total_count, assigned_count, unassigned, fulfilled, unfulfilled
+
+
+def create_depot(
+    session: Session,
+    lat: float,
+    lon: float,
+    address: Optional[str],
+    num_vehicles: int,
+    capacity: int,
+    hex_ids: list[str],
+    h3_resolution: Optional[int],
+    hex_boundaries: list[str],  # WKT polygons, one per hex_id (same order)
+) -> tuple[Depot, list[OnDemandVehicle]]:
+    """Persist a new depot, its service zone hexagons, and its vehicles atomically."""
+    depot_id = f"depot-{uuid.uuid4().hex[:10]}"
+    name = address or depot_id
+
+    depot = Depot(depot_id=depot_id, name=name, lat=lat, lon=lon, address=address)
+    session.add(depot)
+    session.flush()  # obtain depot.id so FKs resolve
+
+    for hex_id, wkt in zip(hex_ids, hex_boundaries):
+        session.add(
+            OnDemandServiceZone(
+                depot_id=depot_id,
+                hex_id=hex_id,
+                h3_resolution=h3_resolution,
+                boundary=WKTElement(wkt, srid=4326) if wkt else None,
+            )
+        )
+
+    new_vehicles: list[OnDemandVehicle] = []
+    for _ in range(num_vehicles):
+        vehicle_id = f"vehicle-{uuid.uuid4().hex[:10]}"
+        v = OnDemandVehicle(vehicle_id=vehicle_id, depot_id=depot_id, capacity=capacity)
+        session.add(v)
+        new_vehicles.append(v)
+
+    session.commit()
+    session.refresh(depot)
+    return depot, new_vehicles
 
 
 def _get_or_create_route(session: Session, vehicle_id: str) -> VehicleRoute:

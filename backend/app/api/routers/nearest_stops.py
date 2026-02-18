@@ -1,15 +1,19 @@
 from __future__ import annotations
 
+from geoalchemy2 import WKTElement
+from geoalchemy2.functions import ST_Distance, ST_DWithin, ST_Transform, ST_X, ST_Y
 from fastapi import APIRouter, Depends
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db import get_session
 from app.models.gtfs import Stop
-from app.schemas.nearest_stops import NearestStopsRequest, NearestStop
-from app.services.planning import get_distance_m
-from sqlalchemy import select
+from app.schemas.nearest_stops import NearestStop, NearestStopsRequest
 
 router = APIRouter(tags=["nearest-stops"])
+
+# Use EPSG:3857 (Web Mercator, metres) for ST_DWithin distance filtering.
+_SRID_M = 3857
 
 
 @router.post(
@@ -25,43 +29,42 @@ def nearest_stops(
     lat, lon = payload.coordinates
     max_distance = payload.max_distance_m
 
-    dlat = max_distance / 111_320
-    dlon = max_distance / (111_320 * max(0.1, abs(_cos_deg(lat))))
+    origin_wgs = func.ST_SetSRID(func.ST_MakePoint(lon, lat), 4326)
+    origin_m = func.ST_Transform(origin_wgs, _SRID_M)
 
-    stops = (
+    rows = (
         session.execute(
-            select(Stop).where(
-                Stop.lat.is_not(None),
-                Stop.lon.is_not(None),
-                Stop.lat.between(lat - dlat, lat + dlat),
-                Stop.lon.between(lon - dlon, lon + dlon),
+            select(
+                Stop.stop_id,
+                Stop.name,
+                ST_X(Stop.location).label("lon"),
+                ST_Y(Stop.location).label("lat"),
+                ST_Distance(
+                    ST_Transform(Stop.location, _SRID_M),
+                    origin_m,
+                ).label("distance_m"),
             )
+            .where(
+                Stop.location.is_not(None),
+                ST_DWithin(
+                    ST_Transform(Stop.location, _SRID_M),
+                    origin_m,
+                    max_distance,
+                ),
+            )
+            .order_by("distance_m")
+            .limit(payload.limit)
         )
-        .scalars()
         .all()
     )
 
-    results: list[NearestStop] = []
-    for stop in stops:
-        if stop.lat is None or stop.lon is None:
-            continue
-        dist = get_distance_m(lat, lon, stop.lat, stop.lon)
-        if dist <= max_distance:
-            results.append(
-                NearestStop(
-                    stop_id=stop.stop_id,
-                    name=stop.name,
-                    lat=stop.lat,
-                    lon=stop.lon,
-                    distance_m=round(dist, 2),
-                )
-            )
-
-    results.sort(key=lambda item: item.distance_m)
-    return results[: payload.limit]
-
-
-def _cos_deg(deg: float) -> float:
-    import math
-
-    return math.cos(deg * math.pi / 180)
+    return [
+        NearestStop(
+            stop_id=row.stop_id,
+            name=row.name,
+            lat=row.lat,
+            lon=row.lon,
+            distance_m=round(row.distance_m, 2),
+        )
+        for row in rows
+    ]

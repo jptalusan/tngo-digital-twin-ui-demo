@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import uuid
 
+import h3
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.db import get_session
 from app.schemas import planning as schemas
+from app.schemas.ondemand import CreateDepotRequest, CreateDepotResponse, DepotVehicleSummary
 from app.services import ondemand as ondemand_service
 from app.crud import ondemand as ondemand_crud
 from app.core.config import settings
@@ -14,6 +16,62 @@ from app.services.leg_merge import merge_walk_on_demand
 from app.services.leg_geometry import fill_leg_addresses
 
 router = APIRouter(tags=["on-demand"])
+
+
+def _hex_to_wkt(hex_id: str) -> str:
+    """Convert an H3 cell ID to a WKT POLYGON (lon lat, SRID 4326)."""
+    boundary = h3.cell_to_boundary(hex_id)  # list of (lat, lon) tuples
+    coords = [(lon, lat) for lat, lon in boundary]
+    coords.append(coords[0])  # close the ring
+    coord_str = ", ".join(f"{lon} {lat}" for lon, lat in coords)
+    return f"POLYGON(({coord_str}))"
+
+
+@router.post(
+    "/on-demand/depots",
+    response_model=CreateDepotResponse,
+    summary="Create on-demand depot",
+    description=(
+        "Create a new depot with a homogeneous vehicle fleet and an H3-based service zone. "
+        "Generates unique depot_id and vehicle_ids automatically."
+    ),
+    status_code=201,
+)
+def create_depot(
+    payload: CreateDepotRequest,
+    session: Session = Depends(get_session),
+) -> CreateDepotResponse:
+    lat, lon = payload.coordinates[0], payload.coordinates[1]
+
+    h3_resolution = payload.h3_resolution
+    if h3_resolution is None and payload.service_zone_hex_ids:
+        h3_resolution = h3.get_resolution(payload.service_zone_hex_ids[0])
+
+    hex_boundaries = [_hex_to_wkt(hid) for hid in payload.service_zone_hex_ids]
+
+    depot, vehicles = ondemand_crud.create_depot(
+        session=session,
+        lat=lat,
+        lon=lon,
+        address=payload.address,
+        num_vehicles=payload.vehicles,
+        capacity=payload.capacity,
+        hex_ids=payload.service_zone_hex_ids,
+        h3_resolution=h3_resolution,
+        hex_boundaries=hex_boundaries,
+    )
+
+    return CreateDepotResponse(
+        depot_id=depot.depot_id,
+        name=depot.name,
+        lat=depot.lat,
+        lon=depot.lon,
+        address=depot.address,
+        vehicle_count=len(vehicles),
+        capacity=payload.capacity,
+        hex_count=len(payload.service_zone_hex_ids),
+        vehicles=[DepotVehicleSummary(vehicle_id=v.vehicle_id, capacity=v.capacity) for v in vehicles],
+    )
 
 
 @router.post(

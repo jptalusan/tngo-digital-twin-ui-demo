@@ -166,6 +166,32 @@ const FixedLineResponse = z
     note: z.string(),
   })
   .passthrough();
+const CreateDepotRequest = z
+  .object({
+    coordinates: z.array(z.number()).min(2).max(2),
+    address: z.union([z.string(), z.null()]).optional(),
+    vehicles: z.number().int().gte(1),
+    capacity: z.number().int().gte(1),
+    service_zone_hex_ids: z.array(z.string()),
+    h3_resolution: z.union([z.number(), z.null()]).optional(),
+  })
+  .passthrough();
+const DepotVehicleSummary = z
+  .object({ vehicle_id: z.string(), capacity: z.number().int() })
+  .passthrough();
+const CreateDepotResponse = z
+  .object({
+    depot_id: z.string(),
+    name: z.string(),
+    lat: z.number(),
+    lon: z.number(),
+    address: z.union([z.string(), z.null()]),
+    vehicle_count: z.number().int(),
+    capacity: z.number().int(),
+    hex_count: z.number().int(),
+    vehicles: z.array(DepotVehicleSummary),
+  })
+  .passthrough();
 const OnDemandRequest = z
   .object({
     origin: z.array(z.number()).min(2).max(2),
@@ -367,6 +393,12 @@ const NearestStop = z
     distance_m: z.number(),
   })
   .passthrough();
+const DemandSummary = z
+  .object({ demand_name: z.string(), row_count: z.number().int() })
+  .passthrough();
+const DemandListResponse = z
+  .object({ demands: z.array(DemandSummary) })
+  .passthrough();
 
 export const schemas = {
   AutocompleteResult,
@@ -390,6 +422,9 @@ export const schemas = {
   Leg,
   Itinerary,
   FixedLineResponse,
+  CreateDepotRequest,
+  DepotVehicleSummary,
+  CreateDepotResponse,
   OnDemandRequest,
   OnDemandResponse,
   PrivateVehicleRequest,
@@ -409,6 +444,8 @@ export const schemas = {
   MultimodalResponse,
   NearestStopsRequest,
   NearestStop,
+  DemandSummary,
+  DemandListResponse,
 };
 
 const endpoints = makeApi([
@@ -455,6 +492,14 @@ const endpoints = makeApi([
         schema: HTTPValidationError,
       },
     ],
+  },
+  {
+    method: "get",
+    path: "/api/demand-list",
+    alias: "demand_list_api_demand_list_get",
+    description: `Returns each distinct demand_name with the number of user rows loaded for that scenario.`,
+    requestFormat: "json",
+    response: DemandListResponse,
   },
   {
     method: "post",
@@ -522,6 +567,28 @@ const endpoints = makeApi([
       },
     ],
     response: z.array(NearestStop),
+    errors: [
+      {
+        status: 422,
+        description: `Validation Error`,
+        schema: HTTPValidationError,
+      },
+    ],
+  },
+  {
+    method: "post",
+    path: "/api/on-demand/depots",
+    alias: "create_depot_api_on_demand_depots_post",
+    description: `Create a new depot with a homogeneous vehicle fleet and an H3-based service zone. Generates unique depot_id and vehicle_ids automatically.`,
+    requestFormat: "json",
+    parameters: [
+      {
+        name: "body",
+        type: "Body",
+        schema: CreateDepotRequest,
+      },
+    ],
+    response: CreateDepotResponse,
     errors: [
       {
         status: 422,

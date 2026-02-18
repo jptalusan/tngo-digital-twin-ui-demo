@@ -2,17 +2,57 @@ from __future__ import annotations
 
 from typing import Optional
 
-from sqlalchemy import String, Integer, Float, ForeignKey, UniqueConstraint
+from geoalchemy2 import Geometry
+from sqlalchemy import ForeignKey, String, Integer, Float, UniqueConstraint, DateTime, func, JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base
 
 
-class Agency(Base):
-    __tablename__ = "agency"
+class GtfsFeed(Base):
+    """Registry of uploaded GTFS feeds. One row per unique zip (keyed by MD5 hash)."""
+
+    __tablename__ = "gtfs_feed"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    agency_id: Mapped[str] = mapped_column(String, unique=True, index=True)
+    gtfs_id: Mapped[str] = mapped_column(String, unique=True, index=True, nullable=False)
+    gtfs_name: Mapped[str] = mapped_column(String, nullable=False)
+    filename: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    uploaded_at: Mapped[Optional[object]] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=True
+    )
+
+
+class GtfsJob(Base):
+    """Async upload job tracker."""
+
+    __tablename__ = "gtfs_job"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    job_id: Mapped[str] = mapped_column(String, unique=True, index=True, nullable=False)
+    gtfs_id: Mapped[str] = mapped_column(
+        String, ForeignKey("gtfs_feed.gtfs_id"), nullable=False, index=True
+    )
+    status: Mapped[str] = mapped_column(String, nullable=False, default="pending")
+    error: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    row_counts: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[Optional[object]] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=True
+    )
+    updated_at: Mapped[Optional[object]] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=True
+    )
+
+
+class Agency(Base):
+    __tablename__ = "gtfs_agency"
+    __table_args__ = (UniqueConstraint("gtfs_id", "agency_id", name="uq_gtfs_agency"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    gtfs_id: Mapped[str] = mapped_column(
+        String, ForeignKey("gtfs_feed.gtfs_id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    agency_id: Mapped[str] = mapped_column(String, index=True)
     name: Mapped[str] = mapped_column(String)
     url: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     timezone: Mapped[Optional[str]] = mapped_column(String, nullable=True)
@@ -21,34 +61,43 @@ class Agency(Base):
 
 
 class Route(Base):
-    __tablename__ = "route"
+    __tablename__ = "gtfs_route"
+    __table_args__ = (UniqueConstraint("gtfs_id", "route_id", name="uq_gtfs_route"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    route_id: Mapped[str] = mapped_column(String, unique=True, index=True)
-    agency_id: Mapped[Optional[str]] = mapped_column(String, index=True)
+    gtfs_id: Mapped[str] = mapped_column(
+        String, ForeignKey("gtfs_feed.gtfs_id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    route_id: Mapped[str] = mapped_column(String, index=True)
+    agency_id: Mapped[Optional[str]] = mapped_column(String, index=True, nullable=True)
     short_name: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     long_name: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     route_type: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 
-    trips: Mapped[list["Trip"]] = relationship(back_populates="route")
-
 
 class Stop(Base):
-    __tablename__ = "stop"
+    __tablename__ = "gtfs_stop"
+    __table_args__ = (UniqueConstraint("gtfs_id", "stop_id", name="uq_gtfs_stop"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    stop_id: Mapped[str] = mapped_column(String, unique=True, index=True)
+    gtfs_id: Mapped[str] = mapped_column(
+        String, ForeignKey("gtfs_feed.gtfs_id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    stop_id: Mapped[str] = mapped_column(String, index=True)
     name: Mapped[Optional[str]] = mapped_column(String, index=True, nullable=True)
-    lat: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
-    lon: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
-
-    stop_times: Mapped[list["StopTime"]] = relationship(back_populates="stop")
+    # PostGIS POINT(lon lat) SRID 4326
+    location: Mapped[Optional[object]] = mapped_column(
+        Geometry("POINT", srid=4326), nullable=True
+    )
 
 
 class Calendar(Base):
-    __tablename__ = "calendar"
+    __tablename__ = "gtfs_calendar"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    gtfs_id: Mapped[str] = mapped_column(
+        String, ForeignKey("gtfs_feed.gtfs_id", ondelete="CASCADE"), nullable=False, index=True
+    )
     service_id: Mapped[str] = mapped_column(String, index=True)
     monday: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     tuesday: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
@@ -62,63 +111,72 @@ class Calendar(Base):
 
 
 class CalendarDate(Base):
-    __tablename__ = "calendar_date"
+    __tablename__ = "gtfs_calendar_date"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    gtfs_id: Mapped[str] = mapped_column(
+        String, ForeignKey("gtfs_feed.gtfs_id", ondelete="CASCADE"), nullable=False, index=True
+    )
     service_id: Mapped[str] = mapped_column(String, index=True)
     date: Mapped[str] = mapped_column(String)
     exception_type: Mapped[int] = mapped_column(Integer)
 
 
 class Shape(Base):
-    __tablename__ = "shape"
+    __tablename__ = "gtfs_shape"
+    __table_args__ = (UniqueConstraint("gtfs_id", "shape_id", name="uq_gtfs_shape"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    shape_id: Mapped[str] = mapped_column(String, unique=True, index=True)
-
-    points: Mapped[list["ShapePoint"]] = relationship(back_populates="shape")
+    gtfs_id: Mapped[str] = mapped_column(
+        String, ForeignKey("gtfs_feed.gtfs_id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    shape_id: Mapped[str] = mapped_column(String, index=True)
 
 
 class ShapePoint(Base):
-    __tablename__ = "shape_point"
+    __tablename__ = "gtfs_shape_point"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    shape_id: Mapped[str] = mapped_column(String, ForeignKey("shape.shape_id"), index=True)
+    gtfs_id: Mapped[str] = mapped_column(
+        String, ForeignKey("gtfs_feed.gtfs_id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    shape_id: Mapped[str] = mapped_column(String, index=True)
     sequence: Mapped[int] = mapped_column(Integer)
-    lat: Mapped[float] = mapped_column(Float)
-    lon: Mapped[float] = mapped_column(Float)
+    # PostGIS POINT(lon lat) SRID 4326
+    geom: Mapped[Optional[object]] = mapped_column(
+        Geometry("POINT", srid=4326), nullable=True
+    )
     dist_traveled: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
-
-    shape: Mapped[Optional[Shape]] = relationship(back_populates="points")
 
 
 class Trip(Base):
-    __tablename__ = "trip"
+    __tablename__ = "gtfs_trip"
+    __table_args__ = (UniqueConstraint("gtfs_id", "trip_id", name="uq_gtfs_trip"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    trip_id: Mapped[str] = mapped_column(String, unique=True, index=True)
-    route_id: Mapped[str] = mapped_column(String, ForeignKey("route.route_id"), index=True)
+    gtfs_id: Mapped[str] = mapped_column(
+        String, ForeignKey("gtfs_feed.gtfs_id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    trip_id: Mapped[str] = mapped_column(String, index=True)
+    route_id: Mapped[str] = mapped_column(String, index=True)
     service_id: Mapped[Optional[str]] = mapped_column(String, index=True, nullable=True)
     shape_id: Mapped[Optional[str]] = mapped_column(String, index=True, nullable=True)
     headsign: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     direction_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 
-    route: Mapped[Optional[Route]] = relationship(back_populates="trips")
-    stop_times: Mapped[list["StopTime"]] = relationship(back_populates="trip")
-
 
 class StopTime(Base):
-    __tablename__ = "stop_time"
+    __tablename__ = "gtfs_stop_time"
     __table_args__ = (
-        UniqueConstraint("trip_id", "stop_sequence", name="uq_stop_time_trip_seq"),
+        UniqueConstraint("gtfs_id", "trip_id", "stop_sequence", name="uq_gtfs_stop_time"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    trip_id: Mapped[str] = mapped_column(String, ForeignKey("trip.trip_id"), index=True)
-    stop_id: Mapped[str] = mapped_column(String, ForeignKey("stop.stop_id"), index=True)
+    gtfs_id: Mapped[str] = mapped_column(
+        String, ForeignKey("gtfs_feed.gtfs_id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    trip_id: Mapped[str] = mapped_column(String, index=True)
+    stop_id: Mapped[str] = mapped_column(String, index=True)
     arrival_time: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     departure_time: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     stop_sequence: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-
-    trip: Mapped[Optional[Trip]] = relationship(back_populates="stop_times")
-    stop: Mapped[Optional[Stop]] = relationship(back_populates="stop_times")

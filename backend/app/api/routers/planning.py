@@ -3,9 +3,12 @@ from __future__ import annotations
 import math
 from fastapi import APIRouter, Depends, Query, HTTPException
 import httpx
+from geoalchemy2.functions import ST_X, ST_Y
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db import get_session
+from app.models.gtfs import Stop
 from app.schemas import planning as schemas
 from app.services import planning as planning_service
 from app.crud import ondemand as ondemand_crud
@@ -28,15 +31,29 @@ def autocomplete(
     stop_results = session.execute(gtfs_crud.select_stops_by_name(query)).scalars().all()
     depot_results = session.execute(ondemand_crud.select_depots_by_name(query)).scalars().all()
 
+    stop_ids = [s.stop_id for s in stop_results]
+    stop_coord_rows = (
+        session.execute(
+            select(
+                Stop.stop_id,
+                ST_Y(Stop.location).label("lat"),
+                ST_X(Stop.location).label("lon"),
+            ).where(Stop.stop_id.in_(stop_ids), Stop.location.is_not(None))
+        )
+        .all()
+    )
+    stop_coord_map = {row.stop_id: (row.lat, row.lon) for row in stop_coord_rows}
+
     results: list[schemas.AutocompleteResult] = []
     for stop in stop_results:
-        if stop.lat is None or stop.lon is None:
+        coords = stop_coord_map.get(stop.stop_id)
+        if coords is None:
             continue
         results.append(
             schemas.AutocompleteResult(
                 id=stop.stop_id,
                 name=stop.name or stop.stop_id,
-                coordinates=[stop.lat, stop.lon],
+                coordinates=[coords[0], coords[1]],
             )
         )
     for depot in depot_results:
