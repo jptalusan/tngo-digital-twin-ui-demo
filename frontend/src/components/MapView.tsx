@@ -25,6 +25,7 @@ export interface RoutePolyline {
   color: string;
   weight?: number;
   opacity?: number;
+  dashArray?: string;
 }
 
 export interface MapLayer {
@@ -185,7 +186,8 @@ export function MapView({ markers, routes, onMapClick, onMapRightClick, highligh
       L.polyline(route.coordinates, {
         color: route.color,
         weight: route.weight || 4,
-        opacity: route.opacity || 0.7
+        opacity: route.opacity || 0.7,
+        dashArray: route.dashArray
       }).addTo(routesLayerRef.current!);
     });
 

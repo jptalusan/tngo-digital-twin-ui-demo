@@ -31,6 +31,15 @@ export default function App() {
   const [itineraries, setItineraries] = useState<any[]>([]);
   const [itineraryMode, setItineraryMode] = useState<string>('');
   const [selectedItineraryId, setSelectedItineraryId] = useState<string | null>(null);
+  const orderItineraries = useCallback((items: any[], bestId?: string | null) => {
+    if (!bestId) return items;
+    const index = items.findIndex((it) => it?.itinerary_id === bestId);
+    if (index <= 0) return items;
+    const next = [...items];
+    const [best] = next.splice(index, 1);
+    next.unshift(best);
+    return next;
+  }, []);
   const decodePolyline = useCallback((encoded: string): [number, number][] => {
     let index = 0;
     let lat = 0;
@@ -87,6 +96,26 @@ export default function App() {
     },
     [decodePolyline]
   );
+
+  const logItineraryGeometries = useCallback((label: string, items: any[]) => {
+    const summary = items.map((it: any, idx: number) => {
+      const geometryString = typeof it?.geometry === 'string' ? it.geometry : '';
+      const legGeometries = Array.isArray(it?.legs)
+        ? it.legs.filter((leg: any) => typeof leg?.geometry === 'string' && leg.geometry.length > 0).length
+        : 0;
+      const geometryPoints = geometryString ? decodePolyline(geometryString).length : 0;
+      return {
+        index: idx,
+        itinerary_id: it?.itinerary_id ?? '(none)',
+        geometry_len: geometryString.length,
+        geometry_points: geometryPoints,
+        geometry_prefix: geometryString.slice(0, 12),
+        leg_geometries: legGeometries
+      };
+    });
+    console.table(summary);
+    console.log(`[navigate] ${label} geometry summary`, summary);
+  }, [decodePolyline]);
   const formatCoordinates = (coordinates: [number, number]) =>
     `${coordinates[0].toFixed(5)}, ${coordinates[1].toFixed(5)}`;
 
@@ -169,20 +198,34 @@ export default function App() {
       });
     }
 
-    if (viewMode === 'passenger' && selectedItinerary) {
-      const geometry = extractItineraryGeometry(selectedItinerary);
-      if (geometry && geometry.length > 0) {
+    if (viewMode === 'passenger' && itineraries.length > 0) {
+      itineraries.forEach((itinerary, index) => {
+        const geometry = extractItineraryGeometry(itinerary);
+        if (!geometry || geometry.length === 0) return;
+        const isSelected = selectedItineraryId
+          ? itinerary?.itinerary_id === selectedItineraryId
+          : index === 0;
         polylines.push({
-          id: 'selected-itinerary',
+          id: `itinerary-${itinerary?.itinerary_id ?? index}`,
           coordinates: geometry,
-          color: '#7c3aed',
-          weight: 6,
-          opacity: 0.9
+          color: isSelected ? '#2563eb' : '#94a3b8',
+          weight: isSelected ? 6 : 3,
+          opacity: isSelected ? 0.9 : 0.2,
+          dashArray: isSelected ? undefined : '6 8'
         });
-      }
+      });
     }
     return polylines;
-  }, [viewMode, routes, selectedRouteIndex, busRoutes, selectedItinerary, extractItineraryGeometry]);
+  }, [
+    viewMode,
+    routes,
+    selectedRouteIndex,
+    busRoutes,
+    itineraries,
+    selectedItineraryId,
+    selectedItinerary,
+    extractItineraryGeometry
+  ]);
 
   // Map layers for evaluation
   const mapLayers = useMemo(() => {
@@ -252,7 +295,9 @@ export default function App() {
         });
         console.log('[navigate] response:', response);
         setItineraryBestId(response.best_itinerary ?? null);
-        setItineraries(response.itineraries ?? []);
+        const ordered = orderItineraries(response.itineraries ?? [], response.best_itinerary);
+        setItineraries(ordered);
+        logItineraryGeometries('fixed-line', ordered);
         setItineraryMode('Fixed Line');
         setItineraryDrawerOpen(true);
       } else if (mode === 'car+bus') {
@@ -269,14 +314,18 @@ export default function App() {
         });
         console.log('[navigate] response:', response);
         setItineraryBestId(response.best_itinerary ?? null);
-        setItineraries(response.itineraries ?? []);
+        const ordered = orderItineraries(response.itineraries ?? [], response.best_itinerary);
+        setItineraries(ordered);
+        logItineraryGeometries('multimodal', ordered);
         setItineraryMode('Multimodal');
         setItineraryDrawerOpen(true);
       } else {
         const response = await apiService.planPrivateVehicle(payload);
         console.log('[navigate] response:', response);
         setItineraryBestId(response.best_itinerary ?? null);
-        setItineraries(response.itineraries ?? []);
+        const ordered = orderItineraries(response.itineraries ?? [], response.best_itinerary);
+        setItineraries(ordered);
+        logItineraryGeometries('private-vehicle', ordered);
         setItineraryMode('Private Vehicle');
         setItineraryDrawerOpen(true);
       }
@@ -469,8 +518,8 @@ export default function App() {
 
         {/* Map + Itinerary Panel */}
         {viewMode === 'passenger' ? (
-          <div className="flex flex-1 min-h-0">
-            <div className="relative flex-1 min-h-0">
+          <div className="flex flex-1 min-h-0 min-w-0">
+            <div className="relative flex-1 min-h-0 min-w-0">
               <MapView
                 markers={markers}
                 routes={routePolylines}
@@ -481,7 +530,10 @@ export default function App() {
               />
             </div>
             {(itineraryDrawerOpen || itineraries.length > 0) && (
-              <div className="h-full w-[420px] min-w-[420px] max-w-[420px] shrink-0 border-l bg-white">
+              <div
+                className="h-full shrink-0 border-l bg-white shadow-xl"
+                style={{ width: '30vw', maxWidth: '30vw', minWidth: '30vw' }}
+              >
                 <ItineraryDrawer
                   open
                   onOpenChange={setItineraryDrawerOpen}
