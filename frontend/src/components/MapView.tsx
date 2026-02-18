@@ -359,9 +359,9 @@ export function MapView({
         const isGtfs = marker.type === 'gtfs-stop';
         L.circleMarker(marker.coordinates, {
           radius: isGtfs ? 5 : 3,
-          color: isGtfs ? '#7c2d12' : isHome ? '#1d4ed8' : '#7f1d1d',
+          color: isGtfs ? '#7c2d12' : isHome ? '#c2410c' : '#9a3412',
           weight: 2,
-          fillColor: isGtfs ? '#fbbf24' : isHome ? '#60a5fa' : '#fca5a5',
+          fillColor: isGtfs ? '#fbbf24' : isHome ? '#fdba74' : '#fb923c',
           fillOpacity: 1,
           renderer: markerRendererRef.current ?? undefined,
           interactive: false,

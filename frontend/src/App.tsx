@@ -8,6 +8,7 @@ import { MapLegend, LegendItem } from './components/MapLegend';
 import { MapContextMenu } from './components/MapContextMenu';
 import { apiService, AutocompleteResult, Route, EvaluationResponse } from './services/api';
 import { buildUrl } from './services/http';
+import { ResponsiveContainer, LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip } from 'recharts';
 import * as h3 from 'h3-js';
 
 type ViewMode = 'passenger' | 'operator';
@@ -33,7 +34,7 @@ export default function App() {
   const [itineraries, setItineraries] = useState<any[]>([]);
   const [itineraryMode, setItineraryMode] = useState<string>('');
   const [selectedItineraryId, setSelectedItineraryId] = useState<string | null>(null);
-  const [baseMapStyle, setBaseMapStyle] = useState<'standard' | 'light'>('standard');
+  const [baseMapStyle, setBaseMapStyle] = useState<'standard' | 'light'>('light');
   const [depotWizardOpen, setDepotWizardOpen] = useState(false);
   const [depotWizardStep, setDepotWizardStep] = useState<DepotWizardStep>('pick-location');
   const [draftDepotLocation, setDraftDepotLocation] = useState<{ coords: [number, number]; address?: string } | null>(null);
@@ -42,7 +43,7 @@ export default function App() {
   const [draftDepotCapacity, setDraftDepotCapacity] = useState(4);
   const [depotGeocoding, setDepotGeocoding] = useState(false);
   const [depotZoneError, setDepotZoneError] = useState<string | null>(null);
-  const [selectedDepotId, setSelectedDepotId] = useState<string | null>(null);
+  const [selectedDepotIds, setSelectedDepotIds] = useState<string[]>([]);
   const [wizardPinnedHex, setWizardPinnedHex] = useState<string | null>(null);
   const [showDepotHexes, setShowDepotHexes] = useState(false);
   const [demandModels, setDemandModels] = useState<Array<{ id: string; label: string }>>([]);
@@ -70,6 +71,28 @@ export default function App() {
     shape_points: Array<{ shape_id: string; lat: number; lon: number; sequence: number }>;
   } | null>(null);
   const [gtfsPreviewLoadingId, setGtfsPreviewLoadingId] = useState<string | null>(null);
+  const [showEvaluationPanel, setShowEvaluationPanel] = useState(false);
+  const ridershipSeries = useMemo(
+    () => [
+      { name: 'Mon', value: 420 },
+      { name: 'Tue', value: 510 },
+      { name: 'Wed', value: 460 },
+      { name: 'Thu', value: 580 },
+      { name: 'Fri', value: 640 },
+      { name: 'Sat', value: 380 },
+      { name: 'Sun', value: 300 }
+    ],
+    []
+  );
+  const costSeries = useMemo(
+    () => [
+      { name: 'Ops', value: 120 },
+      { name: 'Fuel', value: 80 },
+      { name: 'Maint', value: 60 },
+      { name: 'Overhead', value: 40 }
+    ],
+    []
+  );
 
   const mapLoading = loading || evaluating;
   const loadingLabel = loading ? 'Loading routes...' : 'Evaluating service...';
@@ -337,30 +360,33 @@ export default function App() {
           label: 'D*'
         });
       }
-      if (!depotWizardOpen && selectedDepotId) {
-        const selected = depots.find((depot) => depot.id === selectedDepotId);
-        if (selected) {
-          m.push({
-            id: `selected-${selected.id}`,
-            coordinates: selected.coordinates,
-            type: 'depot',
-            label: 'D'
+      if (!depotWizardOpen && selectedDepotIds.length > 0) {
+        depots
+          .filter((depot) => selectedDepotIds.includes(depot.id))
+          .forEach((depot) => {
+            m.push({
+              id: `selected-${depot.id}`,
+              coordinates: depot.coordinates,
+              type: 'depot',
+              label: 'D'
+            });
           });
-        }
       }
       m.push(...gtfsMarkers);
       m.push(...demandMarkers);
     }
     return m;
-  }, [viewMode, origin, destination, depots, depotWizardOpen, draftDepotLocation, selectedDepotId, gtfsMarkers, demandMarkers]);
+  }, [viewMode, origin, destination, depots, depotWizardOpen, draftDepotLocation, selectedDepotIds, gtfsMarkers, demandMarkers]);
   const depotHexes = useMemo(
     () => depots.flatMap((depot) => depot.serviceZoneHexes ?? []),
     [depots]
   );
   const activeDepotHexes = useMemo(() => {
-    if (!selectedDepotId) return [];
-    return depots.find((depot) => depot.id === selectedDepotId)?.serviceZoneHexes ?? [];
-  }, [depots, selectedDepotId]);
+    if (selectedDepotIds.length === 0) return [];
+    return depots
+      .filter((depot) => selectedDepotIds.includes(depot.id))
+      .flatMap((depot) => depot.serviceZoneHexes ?? []);
+  }, [depots, selectedDepotIds]);
 
   useEffect(() => {
     if (itineraries.length === 0) {
@@ -672,9 +698,7 @@ export default function App() {
 
   const handleRemoveDepot = (id: string) => {
     setDepots(depots.filter(d => d.id !== id));
-    if (selectedDepotId === id) {
-      setSelectedDepotId(null);
-    }
+    setSelectedDepotIds((prev) => prev.filter((item) => item !== id));
   };
 
   const handleGtfsUploaded = useCallback((payload: { gtfs_id: string; gtfs_name: string; job_id: string; status: string }) => {
@@ -842,7 +866,7 @@ export default function App() {
         serviceZoneHexes: draftDepotHexes
       };
       setDepots((prev) => [...prev, depot]);
-      setSelectedDepotId(depot.id);
+      setSelectedDepotIds((prev) => [...prev, depot.id]);
       closeDepotWizard();
       setShowDepotHexes(false);
     } catch (error) {
@@ -861,6 +885,7 @@ export default function App() {
   };
 
   const handleEvaluate = async () => {
+    setShowEvaluationPanel(true);
     setEvaluating(true);
     try {
       const result = await apiService.evaluate({
@@ -1084,11 +1109,38 @@ export default function App() {
                   allowMapPan={!(depotWizardOpen && depotWizardStep === 'select-zone')}
                 />
                 {mapLoading && <MapLoadingOverlay />}
-                <div className="absolute inset-0 z-10 pointer-events-none">
+                <div className="absolute inset-0 z-30 pointer-events-none">
                 {/* Map Legend */}
-                {viewMode === 'operator' && evaluationResult && (
+                {viewMode === 'operator' && (
                   <div className="pointer-events-auto">
-                    <MapLegend items={legendItems} onToggle={handleLegendToggle} />
+                    {evaluationResult && (
+                      <MapLegend items={legendItems} onToggle={handleLegendToggle} />
+                    )}
+                    <div className="absolute top-4 right-4 w-48 rounded-lg border border-slate-200 bg-white/95 p-3 shadow-lg">
+                      <div className="text-xs font-semibold text-slate-700 mb-2">Map Legend</div>
+                      <div className="space-y-2 text-xs text-slate-600">
+                        <div className="flex items-center gap-2">
+                          <span className="inline-block h-2 w-2 rounded-full bg-blue-400" />
+                          <span>Demand Home</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="inline-block h-2 w-2 rounded-full bg-red-300" />
+                          <span>Demand Work</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="inline-block h-2 w-2 rounded-full bg-amber-400" />
+                          <span>GTFS Stops</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="inline-block h-1.5 w-6 rounded-full bg-amber-500" />
+                          <span>GTFS Routes</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="inline-block h-2 w-2 rounded-sm bg-blue-600" />
+                          <span>Depot</span>
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 )}
 
@@ -1238,7 +1290,7 @@ export default function App() {
                 </div>
               )}
             </div>
-            {(depots.length > 0 || gtfsUploads.length > 0) && (
+            {(depots.length > 0 || gtfsUploads.length > 0 || showEvaluationPanel) && (
               <div
                 className="h-full shrink-0 border-l bg-white shadow-xl flex flex-col"
                 style={{
@@ -1256,10 +1308,14 @@ export default function App() {
                         key={depot.id}
                         type="button"
                         onClick={() =>
-                          setSelectedDepotId((prev) => (prev === depot.id ? null : depot.id))
+                          setSelectedDepotIds((prev) =>
+                            prev.includes(depot.id)
+                              ? prev.filter((item) => item !== depot.id)
+                              : [...prev, depot.id]
+                          )
                         }
                         className={`w-full text-left rounded-lg border p-3 transition-colors ${
-                          selectedDepotId === depot.id
+                          selectedDepotIds.includes(depot.id)
                             ? 'border-blue-500 bg-blue-50'
                             : 'border-slate-200 hover:border-slate-300'
                         }`}
@@ -1352,6 +1408,39 @@ export default function App() {
                           )}
                         </button>
                       ))}
+                    </div>
+                  </div>
+                )}
+                {showEvaluationPanel && (
+                  <div className="border-t border-slate-200 bg-white">
+                    <div className="px-4 py-3 text-sm font-semibold text-slate-700">Evaluation</div>
+                    <div className="px-4 pb-4 space-y-4">
+                      <div className="rounded-lg border border-slate-200 p-3">
+                        <div className="text-xs font-semibold text-slate-600">Ridership</div>
+                        <div className="mt-2" style={{ width: '100%', height: 140 }}>
+                          <ResponsiveContainer width="100%" height="100%">
+                            <LineChart data={ridershipSeries} margin={{ top: 5, right: 5, left: 0, bottom: 0 }}>
+                              <XAxis dataKey="name" tick={{ fontSize: 10 }} />
+                              <YAxis tick={{ fontSize: 10 }} width={30} />
+                              <Tooltip />
+                              <Line type="monotone" dataKey="value" stroke="#2563eb" strokeWidth={2} dot={false} />
+                            </LineChart>
+                          </ResponsiveContainer>
+                        </div>
+                      </div>
+                      <div className="rounded-lg border border-slate-200 p-3">
+                        <div className="text-xs font-semibold text-slate-600">Total Cost</div>
+                        <div className="mt-2" style={{ width: '100%', height: 140 }}>
+                          <ResponsiveContainer width="100%" height="100%">
+                            <BarChart data={costSeries} margin={{ top: 5, right: 5, left: 0, bottom: 0 }}>
+                              <XAxis dataKey="name" tick={{ fontSize: 10 }} />
+                              <YAxis tick={{ fontSize: 10 }} width={30} />
+                              <Tooltip />
+                              <Bar dataKey="value" fill="#0f766e" radius={[4, 4, 0, 0]} />
+                            </BarChart>
+                          </ResponsiveContainer>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 )}

@@ -282,7 +282,7 @@ export function OperatorView({
 
             {/* Mode Selection */}
             <div className="mb-6">
-              <label className="block text-sm mb-3">Service Modes</label>
+              <label className="block text-sm mb-3">Add Service Modes</label>
               <div className="space-y-3">
                 <button
                   onClick={() => toggleMode('on-demand')}
@@ -523,27 +523,25 @@ export function OperatorView({
               </div>
             )}
 
-            {/* Evaluate Button */}
-            {selectedModes.size > 0 && (
-              <div className="space-y-4">
-                <button
-                  onClick={onEvaluate}
-                  disabled={evaluating}
-                  className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
-                >
-                  <PlayCircle size={20} />
-                  <span>{evaluating ? 'Evaluating...' : 'Evaluate'}</span>
-                </button>
+          </div>
+          {/* Actions */}
+          <div className="border-t bg-white px-6 py-4 space-y-3">
+            <button
+              onClick={onEvaluate}
+              disabled={evaluating}
+              className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
+            >
+              <PlayCircle size={20} />
+              <span>{evaluating ? 'Evaluating...' : 'Evaluate'}</span>
+            </button>
 
-                <button
-                  onClick={onReset}
-                  className="w-full flex items-center justify-center gap-2 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100 transition-colors"
-                >
-                  <RotateCcw size={18} />
-                  <span>Reset Configuration</span>
-                </button>
-              </div>
-            )}
+            <button
+              onClick={onReset}
+              className="w-full flex items-center justify-center gap-2 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100 transition-colors"
+            >
+              <RotateCcw size={18} />
+              <span>Reset Configuration</span>
+            </button>
           </div>
         </>
       )}
