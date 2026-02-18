@@ -185,25 +185,30 @@ export default function App() {
 
   const toggleDepotHex = useCallback((hexId: string) => {
     setDraftDepotHexes((prev) => {
+      console.log('[hex] toggle', hexId, 'prev', prev.length);
       const next = new Set(prev);
       if (next.has(hexId)) {
         next.delete(hexId);
         setDepotZoneError(null);
+        console.log('[hex] removed', hexId, 'next', next.size);
         return Array.from(next);
       }
       if (next.size === 0) {
         next.add(hexId);
         setDepotZoneError(null);
+        console.log('[hex] added first', hexId, 'next', next.size);
         return Array.from(next);
       }
       const neighbors = getHexNeighbors(hexId).filter((neighbor) => neighbor !== hexId);
       const isAdjacent = neighbors.some((neighbor) => next.has(neighbor));
       if (!isAdjacent) {
         setDepotZoneError('Selection must be contiguous (touching sides only).');
+        console.log('[hex] rejected non-adjacent', hexId);
         return prev;
       }
       next.add(hexId);
       setDepotZoneError(null);
+      console.log('[hex] added', hexId, 'next', next.size);
       return Array.from(next);
     });
   }, [getHexNeighbors]);
@@ -446,6 +451,22 @@ export default function App() {
   };
 
   const handleMapClick = useCallback((coordinates: [number, number]) => {
+    if (depotWizardOpen && depotWizardStep === 'select-zone') {
+      try {
+        const resolution = Number((import.meta.env.VITE_DEMAND_HEX_RES as string | undefined) ?? 7);
+        const hexId = (h3 as any).latLngToCell
+          ? (h3 as any).latLngToCell(coordinates[0], coordinates[1], resolution)
+          : (h3 as any).geoToH3(coordinates[0], coordinates[1], resolution);
+        if (hexId) {
+          toggleDepotHex(hexId);
+        }
+      } catch (error) {
+        console.warn('[hex] map click failed', error);
+      }
+      setContextMenu(null);
+      return;
+    }
+
     if (depotWizardOpen && depotWizardStep === 'pick-location') {
       const fallbackName = formatCoordinates(coordinates);
       setDraftDepotLocation({ coords: coordinates, address: fallbackName });
@@ -463,7 +484,7 @@ export default function App() {
     }
     // Close context menu when clicking
     setContextMenu(null);
-  }, [depotWizardOpen, depotWizardStep, formatCoordinates, truncateAddress]);
+  }, [depotWizardOpen, depotWizardStep, formatCoordinates, truncateAddress, toggleDepotHex]);
 
   const handleMapRightClick = useCallback((coordinates: [number, number], x: number, y: number) => {
     setContextMenu({ x, y, coordinates });
@@ -727,7 +748,7 @@ export default function App() {
                   layers={mapLayers}
                   showHexGrid={viewMode === 'operator' && depotWizardOpen && depotWizardStep === 'select-zone'}
                   selectedHexes={draftDepotHexes}
-                  onHexClick={depotWizardOpen && depotWizardStep === 'select-zone' ? toggleDepotHex : undefined}
+                  allowMapPan={!(depotWizardOpen && depotWizardStep === 'select-zone')}
                 />
                 {mapLoading && <MapLoadingOverlay />}
                 <div className="absolute inset-0 z-10 pointer-events-none">

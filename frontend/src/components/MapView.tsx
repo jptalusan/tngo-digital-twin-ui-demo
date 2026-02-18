@@ -49,6 +49,7 @@ interface MapViewProps {
   showHexGrid?: boolean;
   selectedHexes?: string[];
   onHexClick?: (hexId: string) => void;
+  allowMapPan?: boolean;
 }
 
 export function MapView({
@@ -60,7 +61,8 @@ export function MapView({
   layers = [],
   showHexGrid = false,
   selectedHexes = [],
-  onHexClick
+  onHexClick,
+  allowMapPan = true
 }: MapViewProps) {
   const mapRef = useRef<L.Map | null>(null);
   const mapContainerRef = useRef<HTMLDivElement>(null);
@@ -78,15 +80,23 @@ export function MapView({
 
     const map = L.map(mapContainerRef.current).setView([35.1495, -90.0490], 12);
 
+    if (!map.getPane('hexes')) {
+      const pane = map.createPane('hexes');
+      if (pane) {
+        pane.style.zIndex = '450';
+        pane.style.pointerEvents = 'auto';
+      }
+    }
+
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '© OpenStreetMap contributors'
     }).addTo(map);
 
     mapRef.current = map;
-    markersLayerRef.current = L.layerGroup().addTo(map);
-    routesLayerRef.current = L.layerGroup().addTo(map);
-    layersGroupRef.current = L.layerGroup().addTo(map);
-    hexLayerRef.current = L.layerGroup().addTo(map);
+      markersLayerRef.current = L.layerGroup().addTo(map);
+      routesLayerRef.current = L.layerGroup().addTo(map);
+      layersGroupRef.current = L.layerGroup().addTo(map);
+      hexLayerRef.current = L.layerGroup({ pane: 'hexes' }).addTo(map);
 
     if (typeof ResizeObserver !== 'undefined') {
       resizeObserverRef.current = new ResizeObserver(() => {
@@ -163,6 +173,11 @@ export function MapView({
         hexLayer.clearLayers();
         return;
       }
+      console.log('[hex] build', {
+        showHexGrid,
+        count: hexes.length,
+        onHexClick: Boolean(onHexClick)
+      });
       hexLayer.clearLayers();
       const selected = new Set(selectedHexes);
 
@@ -175,15 +190,15 @@ export function MapView({
           opacity: isSelected ? 0.9 : 0.5,
           fillColor: isSelected ? '#60a5fa' : '#93c5fd',
           fillOpacity: isSelected ? 0.35 : 0.12,
-          interactive: Boolean(onHexClick),
-          bubblingMouseEvents: false
+          interactive: false,
+          bubblingMouseEvents: false,
+          pane: 'hexes'
         });
-        if (onHexClick) {
-          polygon.on('click', (event) => {
-            L.DomEvent.stopPropagation(event);
-            onHexClick(hexId);
-          });
-        }
+        polygon.on('pointerdown', (event: L.LeafletMouseEvent) => {
+          if (event.originalEvent) {
+            L.DomEvent.stopPropagation(event.originalEvent);
+          }
+        });
         polygon.addTo(hexLayer);
       });
     };
@@ -212,6 +227,22 @@ export function MapView({
       map.off('click', handleClick);
     };
   }, [onMapClick]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    if (allowMapPan) {
+      map.dragging.enable();
+      map.scrollWheelZoom.enable();
+      map.doubleClickZoom.enable();
+      map.boxZoom.enable();
+    } else {
+      map.dragging.disable();
+      map.scrollWheelZoom.disable();
+      map.doubleClickZoom.disable();
+      map.boxZoom.disable();
+    }
+  }, [allowMapPan]);
 
   // Handle map right-clicks
   useEffect(() => {
