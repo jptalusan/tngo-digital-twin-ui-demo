@@ -31,6 +31,9 @@ export default function App() {
   const [itineraries, setItineraries] = useState<any[]>([]);
   const [itineraryMode, setItineraryMode] = useState<string>('');
   const [selectedItineraryId, setSelectedItineraryId] = useState<string | null>(null);
+
+  const mapLoading = loading || evaluating;
+  const loadingLabel = loading ? 'Loading routes...' : 'Evaluating service...';
   const orderItineraries = useCallback((items: any[], bestId?: string | null) => {
     if (!bestId) return items;
     const index = items.findIndex((it) => it?.itinerary_id === bestId);
@@ -213,10 +216,12 @@ export default function App() {
         polylines.push({
           id: `itinerary-${itinerary?.itinerary_id ?? index}`,
           coordinates: geometry,
-          color: isSelected ? '#2563eb' : '#94a3b8',
-          weight: isSelected ? 6 : 3,
-          opacity: isSelected ? 0.9 : 0.2,
-          dashArray: isSelected ? undefined : '6 8'
+          color: isSelected ? '#3b82f6' : '#64748b',
+          weight: isSelected ? 6 : 5,
+          opacity: isSelected ? 0.95 : 0.75,
+          outlineColor: isSelected ? '#1e3a8a' : '#334155',
+          outlineWeight: isSelected ? 10 : 8,
+          outlineOpacity: isSelected ? 0.95 : 0.7
         });
       });
     }
@@ -481,6 +486,15 @@ export default function App() {
     setMapClickEnabled(false);
   };
 
+  const MapLoadingOverlay = () => (
+    <div className="absolute inset-0 z-[1000] flex items-center justify-center bg-white/70 backdrop-blur-sm">
+      <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white/90 px-4 py-3 shadow-lg">
+        <span className="inline-flex h-5 w-5 animate-spin rounded-full border-2 border-slate-300 border-t-blue-600" />
+        <span className="text-sm font-medium text-slate-700">{loadingLabel}</span>
+      </div>
+    </div>
+  );
+
   return (
     <div className="h-screen flex flex-col">
       {/* Top Bar */}
@@ -551,6 +565,7 @@ export default function App() {
                 highlightedSegment={highlightedSegment}
                 layers={mapLayers}
               />
+              {mapLoading && <MapLoadingOverlay />}
             </div>
             {(itineraryDrawerOpen || itineraries.length > 0) && (
               <div
@@ -588,6 +603,7 @@ export default function App() {
               highlightedSegment={highlightedSegment}
               layers={mapLayers}
             />
+            {mapLoading && <MapLoadingOverlay />}
             <div className="absolute inset-0 z-10 pointer-events-none">
               {/* Map Legend */}
               {viewMode === 'operator' && evaluationResult && (
