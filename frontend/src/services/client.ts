@@ -121,6 +121,19 @@ const ScoreBreakdown = z
     score: z.number(),
   })
   .passthrough();
+const ItineraryMetrics = z
+  .object({
+    total_duration_s: z.number().int(),
+    total_wait_s: z.number().int(),
+    total_invehicle_s: z.number().int(),
+    total_walk_m: z.number(),
+    total_transit_distance_m: z.number(),
+    total_vehicle_distance_m: z.number(),
+    geometry: z.union([z.string(), z.null()]).optional(),
+    score: ScoreBreakdown,
+  })
+  .passthrough();
+const ResponseMetrics = z.object({ overall: ItineraryMetrics }).passthrough();
 const Coordinate = z.object({ lat: z.number(), lon: z.number() }).passthrough();
 const Leg = z
   .object({
@@ -162,6 +175,7 @@ const FixedLineResponse = z
     total_transit_distance_m: z.union([z.number(), z.null()]).optional(),
     total_vehicle_distance_m: z.union([z.number(), z.null()]).optional(),
     score: z.union([ScoreBreakdown, z.null()]).optional(),
+    metrics: z.union([ResponseMetrics, z.null()]).optional(),
     itineraries: z.array(Itinerary),
     note: z.string(),
   })
@@ -218,6 +232,7 @@ const OnDemandResponse = z
     total_vehicle_distance_m: z.number(),
     itineraries: z.array(Itinerary),
     score: ScoreBreakdown,
+    metrics: z.union([ResponseMetrics, z.null()]).optional(),
     note: z.string(),
   })
   .passthrough();
@@ -257,6 +272,7 @@ const PrivateVehicleResponse = z
     total_transit_distance_m: z.union([z.number(), z.null()]).optional(),
     total_vehicle_distance_m: z.union([z.number(), z.null()]).optional(),
     score: z.union([ScoreBreakdown, z.null()]).optional(),
+    metrics: z.union([ResponseMetrics, z.null()]).optional(),
     itineraries: z.array(Itinerary),
     note: z.string(),
   })
@@ -355,17 +371,6 @@ const OnDemandManifestResponse = z
     note: z.string(),
   })
   .passthrough();
-const ItineraryMetrics = z
-  .object({
-    total_duration_s: z.number().int(),
-    total_wait_s: z.number().int(),
-    total_invehicle_s: z.number().int(),
-    total_walk_m: z.number(),
-    total_transit_distance_m: z.number(),
-    total_vehicle_distance_m: z.number(),
-    score: ScoreBreakdown,
-  })
-  .passthrough();
 const MultimodalMetrics = z
   .object({
     overall: ItineraryMetrics,
@@ -390,6 +395,7 @@ const MultimodalResponse = z
     total_transit_distance_m: z.union([z.number(), z.null()]).optional(),
     total_vehicle_distance_m: z.union([z.number(), z.null()]).optional(),
     score: z.union([ScoreBreakdown, z.null()]).optional(),
+    metrics: z.union([ResponseMetrics, z.null()]).optional(),
     itineraries: z.array(MultimodalItinerary),
     note: z.string(),
   })
@@ -442,6 +448,33 @@ const GtfsJobStatus = z
 const GtfsFeedListItem = z
   .object({ gtfs_id: z.string(), gtfs_name: z.string() })
   .passthrough();
+const GtfsPreviewRouteGroup = z
+  .object({ agency: z.string(), route_ids: z.array(z.string()) })
+  .passthrough();
+const GtfsPreviewStop = z
+  .object({
+    stop_id: z.string(),
+    name: z.union([z.string(), z.null()]),
+    lat: z.number(),
+    lon: z.number(),
+  })
+  .passthrough();
+const GtfsPreviewShapePoint = z
+  .object({
+    shape_id: z.string(),
+    lat: z.number(),
+    lon: z.number(),
+    sequence: z.number().int(),
+  })
+  .passthrough();
+const GtfsPreviewResponse = z
+  .object({
+    gtfs_id: z.string(),
+    routes: z.array(GtfsPreviewRouteGroup),
+    stops: z.array(GtfsPreviewStop),
+    shape_points: z.array(GtfsPreviewShapePoint),
+  })
+  .passthrough();
 
 export const schemas = {
   AutocompleteResult,
@@ -461,6 +494,8 @@ export const schemas = {
   EvaluationResponse,
   FixedLineRequest,
   ScoreBreakdown,
+  ItineraryMetrics,
+  ResponseMetrics,
   Coordinate,
   Leg,
   Itinerary,
@@ -483,7 +518,6 @@ export const schemas = {
   OnDemandManifestStop,
   OnDemandManifestLeg,
   OnDemandManifestResponse,
-  ItineraryMetrics,
   MultimodalMetrics,
   MultimodalItinerary,
   MultimodalResponse,
@@ -495,6 +529,10 @@ export const schemas = {
   GtfsUploadResponse,
   GtfsJobStatus,
   GtfsFeedListItem,
+  GtfsPreviewRouteGroup,
+  GtfsPreviewStop,
+  GtfsPreviewShapePoint,
+  GtfsPreviewResponse,
 };
 
 const endpoints = makeApi([
@@ -564,6 +602,33 @@ const endpoints = makeApi([
       },
     ],
     response: EvaluationResponse,
+    errors: [
+      {
+        status: 422,
+        description: `Validation Error`,
+        schema: HTTPValidationError,
+      },
+    ],
+  },
+  {
+    method: "get",
+    path: "/api/gtfs/:gtfs_id/preview",
+    alias: "preview_gtfs_api_gtfs__gtfs_id__preview_get",
+    description: `Return a preview of routes, stops, and shape points for a GTFS feed.`,
+    requestFormat: "json",
+    parameters: [
+      {
+        name: "gtfs_id",
+        type: "Path",
+        schema: z.string(),
+      },
+      {
+        name: "limit",
+        type: "Query",
+        schema: z.number().int().gte(1).lte(200).optional().default(10),
+      },
+    ],
+    response: GtfsPreviewResponse,
     errors: [
       {
         status: 422,

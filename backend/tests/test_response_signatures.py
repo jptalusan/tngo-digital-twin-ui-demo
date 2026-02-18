@@ -21,6 +21,9 @@ def test_fixed_line_signature(client, gtfs_fixture_path):
         assert "geometry" in itinerary
         assert "total_transit_distance_m" in itinerary
         assert "total_vehicle_distance_m" in itinerary
+        assert "metrics" in body
+        assert "overall" in body["metrics"]
+        assert "geometry" in body["metrics"]["overall"]
         assert isinstance(itinerary["legs"], list)
         if itinerary["legs"]:
             assert "geometry" in itinerary["legs"][0]
@@ -47,6 +50,9 @@ def test_on_demand_signature(client):
     assert "legs" in itinerary
     assert "total_transit_distance_m" in itinerary
     assert "total_vehicle_distance_m" in itinerary
+    assert "metrics" in body
+    assert "overall" in body["metrics"]
+    assert "geometry" in body["metrics"]["overall"]
     assert "geometry" in itinerary
     if itinerary["legs"]:
         assert "geometry" in itinerary["legs"][0]
@@ -73,4 +79,7 @@ def test_multimodal_signature(client, gtfs_fixture_path):
         assert "overall" in itinerary["metrics"]
         assert "total_transit_distance_m" in itinerary["metrics"]["overall"]
         assert "total_vehicle_distance_m" in itinerary["metrics"]["overall"]
+        assert "metrics" in body
+        assert "overall" in body["metrics"]
+        assert "geometry" in body["metrics"]["overall"]
         assert body["best_itinerary"] in {item["itinerary_id"] for item in body["itineraries"]}
