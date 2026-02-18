@@ -34,6 +34,11 @@ interface OperatorViewProps {
   onGtfsUploaded: (payload: { gtfs_id: string; gtfs_name: string; job_id: string; status: string }) => void;
   showDepotHexes: boolean;
   onToggleDepotHexes: (value: boolean) => void;
+  demandModels: Array<{ id: string; label: string }>;
+  selectedDemandModelId: string;
+  demandSamplePercent: number;
+  onDemandModelChange: (id: string) => void;
+  onDemandSampleChange: (value: number) => void;
   evaluating?: boolean;
 }
 
@@ -48,6 +53,11 @@ export function OperatorView({
   onGtfsUploaded,
   showDepotHexes,
   onToggleDepotHexes,
+  demandModels,
+  selectedDemandModelId,
+  demandSamplePercent,
+  onDemandModelChange,
+  onDemandSampleChange,
   evaluating = false
 }: OperatorViewProps) {
   const [selectedModes, setSelectedModes] = useState<Set<string>>(new Set());
@@ -62,14 +72,8 @@ export function OperatorView({
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [onDemandExpanded, setOnDemandExpanded] = useState(true);
   const [busExpanded, setBusExpanded] = useState(true);
-  const demandModels = [
-    { id: 'memphis-clustered', label: 'Memphis Clustered (Placeholder)', maxRange: 30 },
-    { id: 'nissan-boc', label: 'Nissan BOC (Placeholder)', maxRange: 20 },
-    { id: 'honda-boc', label: 'Honda BOC (Placeholder)', maxRange: 25 }
-  ];
-  const [selectedDemandModelId, setSelectedDemandModelId] = useState(demandModels[0].id);
-  const selectedDemandModel = demandModels.find((model) => model.id === selectedDemandModelId) ?? demandModels[0];
-  const [demandRange, setDemandRange] = useState(0);
+  const selectedDemandModel =
+    demandModels.find((model) => model.id === selectedDemandModelId) ?? demandModels[0];
 
   const toggleMode = (mode: string) => {
     const newModes = new Set(selectedModes);
@@ -230,15 +234,9 @@ export function OperatorView({
               <div className="space-y-3">
                 <select
                   value={selectedDemandModelId}
-                  onChange={(e) => {
-                    const nextId = e.target.value;
-                    setSelectedDemandModelId(nextId);
-                    const nextModel = demandModels.find((model) => model.id === nextId);
-                    if (nextModel && demandRange > nextModel.maxRange) {
-                      setDemandRange(nextModel.maxRange);
-                    }
-                  }}
+                  onChange={(e) => onDemandModelChange(e.target.value)}
                   className="w-full px-3 py-2 border rounded-lg bg-white"
+                  disabled={demandModels.length === 0}
                 >
                   {demandModels.map((model) => (
                     <option key={model.id} value={model.id}>
@@ -248,17 +246,17 @@ export function OperatorView({
                 </select>
                 <div>
                   <div className="flex items-center justify-between text-xs text-gray-600 mb-2">
-                    <span>Range</span>
+                    <span>Sample</span>
                     <span>
-                      {demandRange} / {selectedDemandModel.maxRange}
+                      {demandSamplePercent}%
                     </span>
                   </div>
                   <input
                     type="range"
                     min={0}
-                    max={selectedDemandModel.maxRange}
-                    value={demandRange}
-                    onChange={(e) => setDemandRange(parseInt(e.target.value) || 0)}
+                    max={100}
+                    value={demandSamplePercent}
+                    onChange={(e) => onDemandSampleChange(parseInt(e.target.value) || 0)}
                     className="w-full"
                   />
                 </div>

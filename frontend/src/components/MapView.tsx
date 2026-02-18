@@ -15,7 +15,7 @@ const leafletStyles = `
 export interface Marker {
   id: string;
   coordinates: [number, number];
-  type: 'origin' | 'destination' | 'depot' | 'gtfs-stop';
+  type: 'origin' | 'destination' | 'depot' | 'gtfs-stop' | 'demand-home' | 'demand-work';
   label?: string;
   description?: string;
 }
@@ -354,16 +354,18 @@ export function MapView({
     markersLayerRef.current.clearLayers();
 
     markers.forEach(marker => {
-      if (marker.type === 'gtfs-stop') {
+      if (marker.type === 'gtfs-stop' || marker.type === 'demand-home' || marker.type === 'demand-work') {
+        const isHome = marker.type === 'demand-home';
+        const isGtfs = marker.type === 'gtfs-stop';
         L.circleMarker(marker.coordinates, {
-          radius: 5,
-          color: '#b45309',
+          radius: isGtfs ? 5 : 3,
+          color: isGtfs ? '#7c2d12' : isHome ? '#1d4ed8' : '#7f1d1d',
           weight: 2,
-          fillColor: '#f59e0b',
-          fillOpacity: 0.9,
+          fillColor: isGtfs ? '#fbbf24' : isHome ? '#60a5fa' : '#fca5a5',
+          fillOpacity: 1,
           renderer: markerRendererRef.current ?? undefined,
           interactive: false,
-          pane: 'overlayPane'
+          pane: isGtfs ? 'markerPane' : 'overlayPane'
         }).addTo(markersLayerRef.current!);
         return;
       }

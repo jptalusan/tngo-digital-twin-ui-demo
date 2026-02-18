@@ -45,6 +45,23 @@ export default function App() {
   const [selectedDepotId, setSelectedDepotId] = useState<string | null>(null);
   const [wizardPinnedHex, setWizardPinnedHex] = useState<string | null>(null);
   const [showDepotHexes, setShowDepotHexes] = useState(false);
+  const [demandModels, setDemandModels] = useState<Array<{ id: string; label: string }>>([]);
+  const [selectedDemandModelId, setSelectedDemandModelId] = useState<string>('');
+  const [demandSamplePercent, setDemandSamplePercent] = useState(20);
+  const [demandPreview, setDemandPreview] = useState<{
+    demand_name: string;
+    total_count: number;
+    sampled_count: number;
+    points: Array<{
+      home_lat: number;
+      home_lon: number;
+      work_lat: number;
+      work_lon: number;
+      shift: number;
+      shift_start: string;
+      shift_end: string;
+    }>;
+  } | null>(null);
   const [gtfsUploads, setGtfsUploads] = useState<Array<{ gtfs_id: string; gtfs_name: string; job_id: string; status: string }>>([]);
   const [gtfsPreview, setGtfsPreview] = useState<{
     gtfs_id: string;
@@ -265,6 +282,23 @@ export default function App() {
     });
     return routes;
   }, [gtfsPreview]);
+  const demandMarkers = useMemo(() => {
+    if (!demandPreview) return [];
+    const markers: Marker[] = [];
+    demandPreview.points.forEach((point, index) => {
+      markers.push({
+        id: `demand-home-${index}`,
+        coordinates: [point.home_lat, point.home_lon],
+        type: 'demand-home'
+      });
+      markers.push({
+        id: `demand-work-${index}`,
+        coordinates: [point.work_lat, point.work_lon],
+        type: 'demand-work'
+      });
+    });
+    return markers;
+  }, [demandPreview]);
 
   // Generate markers for map
   const markers = useMemo(() => {
@@ -315,9 +349,10 @@ export default function App() {
         }
       }
       m.push(...gtfsMarkers);
+      m.push(...demandMarkers);
     }
     return m;
-  }, [viewMode, origin, destination, depots, depotWizardOpen, draftDepotLocation, selectedDepotId, gtfsMarkers]);
+  }, [viewMode, origin, destination, depots, depotWizardOpen, draftDepotLocation, selectedDepotId, gtfsMarkers, demandMarkers]);
   const depotHexes = useMemo(
     () => depots.flatMap((depot) => depot.serviceZoneHexes ?? []),
     [depots]
@@ -645,6 +680,32 @@ export default function App() {
   const handleGtfsUploaded = useCallback((payload: { gtfs_id: string; gtfs_name: string; job_id: string; status: string }) => {
     setGtfsUploads((prev) => [payload, ...prev]);
   }, []);
+  const handleGenerateDemandPreview = useCallback(async () => {
+    if (!selectedDemandModelId) return;
+    const sample = Math.max(0, Math.min(1, demandSamplePercent / 100));
+    try {
+      const response = await fetch(buildUrl(`/demand/${selectedDemandModelId}/preview?sample=${sample}`));
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+      const payload = await response.json();
+      console.log('[demand] preview', {
+        demand_name: payload?.demand_name,
+        total_count: payload?.total_count,
+        sampled_count: payload?.sampled_count,
+        points: payload?.points?.length ?? 0
+      });
+      setDemandPreview(payload);
+    } catch (error) {
+      console.error('[api] demand preview error:', error);
+    }
+  }, [selectedDemandModelId, demandSamplePercent]);
+
+  useEffect(() => {
+    if (viewMode !== 'operator') return;
+    if (!selectedDemandModelId) return;
+    handleGenerateDemandPreview();
+  }, [viewMode, selectedDemandModelId, demandSamplePercent, handleGenerateDemandPreview]);
 
   useEffect(() => {
     const pendingJobs = gtfsUploads.filter((upload) => upload.status === 'pending' || upload.status === 'processing');
@@ -689,10 +750,12 @@ export default function App() {
 
     const loadLists = async () => {
       try {
-        const [depotsResponse, gtfsResponse] = await Promise.all([
+        const [depotsResponse, gtfsResponse, demandResponse] = await Promise.all([
           apiService.listOnDemandDepots(),
-          apiService.listGtfsFeeds()
+          apiService.listGtfsFeeds(),
+          apiService.listDemandModels()
         ]);
+        console.log('[api] demand list response:', demandResponse);
 
         if (!cancelled) {
           setDepots((prev) => {
@@ -729,6 +792,17 @@ export default function App() {
               }));
             return [...prev, ...incoming];
           });
+
+          const models = demandResponse?.demands ?? [];
+          const mapped = models.map((item: any) => ({
+            id: item.demand_name,
+            label: `${item.demand_name} (${item.row_count})`
+          }));
+          console.log('[api] demand list mapped:', mapped);
+          setDemandModels(mapped);
+          if (!selectedDemandModelId && mapped.length > 0) {
+            setSelectedDemandModelId(mapped[0].id);
+          }
         }
       } catch (error) {
         console.error('[api] list operator data error:', error);
@@ -740,7 +814,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [viewMode]);
+  }, [viewMode, selectedDemandModelId]);
 
   const handleSaveDepot = useCallback(async () => {
     if (!draftDepotLocation) return;
@@ -931,6 +1005,11 @@ export default function App() {
             onGtfsUploaded={handleGtfsUploaded}
             showDepotHexes={showDepotHexes}
             onToggleDepotHexes={setShowDepotHexes}
+            demandModels={demandModels}
+            selectedDemandModelId={selectedDemandModelId}
+            demandSamplePercent={demandSamplePercent}
+            onDemandModelChange={setSelectedDemandModelId}
+            onDemandSampleChange={setDemandSamplePercent}
             evaluating={evaluating}
           />
         )}

@@ -24,6 +24,7 @@ export type CreateDepotRequest = z.infer<typeof schemas.CreateDepotRequest>;
 export type CreateDepotResponse = z.infer<typeof schemas.CreateDepotResponse>;
 export type DepotSummary = z.infer<typeof schemas.DepotSummary>;
 export type GtfsFeedListItem = z.infer<typeof schemas.GtfsFeedListItem>;
+export type DemandListResponse = z.infer<typeof schemas.DemandListResponse>;
 
 const apiBase =
   (import.meta.env.VITE_API_URL as string | undefined) ??
@@ -86,6 +87,11 @@ class ApiService {
 
   async listGtfsFeeds(): Promise<GtfsFeedListItem[]> {
     return apiClient.list_gtfs_feeds_api_gtfs_list_get();
+  }
+
+  async listDemandModels(): Promise<DemandListResponse> {
+    console.log('[api] GET /api/demand-list');
+    return apiClient.demand_list_api_demand_list_get();
   }
 }
 
