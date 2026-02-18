@@ -16,6 +16,7 @@ from app.crud import gtfs as gtfs_crud
 from app.services.planning import get_distance_m
 from app.services.leg_geometry import fill_leg_metrics, aggregate_geometry
 from app.services.leg_merge import merge_walk_on_demand
+from app.services.itinerary_metrics import compute_itinerary_metrics
 
 logger = get_logger("fixed_line")
 
@@ -218,6 +219,12 @@ def plan_fixed_line(
             geometry=aggregate_geometry(legs),
             score=score,
         )
+        metrics = compute_itinerary_metrics(
+            itinerary.legs,
+            constraints.score_weight_total_minutes,
+            constraints.score_weight_wait_minutes,
+            constraints.score_weight_walk_meters,
+        )
 
         return schemas.FixedLineResponse(
             best_itinerary=itinerary.itinerary_id,
@@ -225,7 +232,10 @@ def plan_fixed_line(
             total_wait_s=itinerary.total_wait_s,
             total_invehicle_s=itinerary.total_invehicle_s,
             total_walk_m=itinerary.total_walk_m,
+            total_transit_distance_m=itinerary.total_transit_distance_m,
+            total_vehicle_distance_m=itinerary.total_vehicle_distance_m,
             score=itinerary.score,
+            metrics=schemas.ResponseMetrics(overall=metrics),
             itineraries=[itinerary],
             note="BOC request: manual pipeline (origin->BOC ingress->BOC egress->walk).",
         )
@@ -266,8 +276,7 @@ def plan_fixed_line(
         total_transit_distance_m = sum(
             leg.distance_m or 0 for leg in legs if leg.mode in ("transit", "transfer")
         )
-        itineraries.append(
-            schemas.Itinerary(
+        itinerary = schemas.Itinerary(
                 itinerary_id=f"fixed-{idx}",
                 legs=legs,
                 total_duration_s=candidate.total_duration_s,
@@ -286,11 +295,21 @@ def plan_fixed_line(
                     weight_walk_meters=candidate.score_breakdown["weight_walk_meters"],
                     score=round(candidate.score_breakdown["score"], 4),
                 ),
-            )
         )
+        itineraries.append(itinerary)
 
     note = "Rule-based itinerary selection using stop distance and time constraints."
     best = min(itineraries, key=lambda item: item.score.score) if itineraries else None
+    best_metrics = (
+        compute_itinerary_metrics(
+            best.legs,
+            constraints.score_weight_total_minutes,
+            constraints.score_weight_wait_minutes,
+            constraints.score_weight_walk_meters,
+        )
+        if best
+        else None
+    )
     return schemas.FixedLineResponse(
         best_itinerary=best.itinerary_id if best else None,
         total_duration_s=best.total_duration_s if best else None,
@@ -300,6 +319,7 @@ def plan_fixed_line(
         total_transit_distance_m=best.total_transit_distance_m if best else None,
         total_vehicle_distance_m=best.total_vehicle_distance_m if best else None,
         score=best.score if best else None,
+        metrics=schemas.ResponseMetrics(overall=best_metrics) if best_metrics else None,
         itineraries=itineraries,
         note=note,
     )

@@ -14,6 +14,7 @@ from app.crud import ondemand as ondemand_crud
 from app.core.config import settings
 from app.services.leg_merge import merge_walk_on_demand
 from app.services.leg_geometry import fill_leg_addresses
+from app.services.itinerary_metrics import compute_itinerary_metrics
 from app.models.ondemand import Depot, OnDemandServiceZone, OnDemandVehicle
 
 router = APIRouter(tags=["on-demand"])
@@ -225,6 +226,12 @@ def plan_on_demand(
     itinerary.legs = merge_walk_on_demand(itinerary.legs)
     fill_leg_addresses(itinerary.legs)
 
+    metrics = compute_itinerary_metrics(
+        itinerary.legs,
+        weight_total,
+        weight_wait,
+        weight_walk,
+    )
     return schemas.OnDemandResponse(
         vehicle_id=result.vehicle_id,
         eta_minutes=result.eta_minutes,
@@ -239,6 +246,7 @@ def plan_on_demand(
             itinerary
         ],
         score=score,
+        metrics=schemas.ResponseMetrics(overall=metrics),
         note=result.note,
     )
 
@@ -349,6 +357,12 @@ def plan_private_vehicle(
     )
 
     fill_leg_addresses(itinerary.legs)
+    metrics = compute_itinerary_metrics(
+        itinerary.legs,
+        weight_total,
+        weight_wait,
+        weight_walk,
+    )
     return schemas.PrivateVehicleResponse(
         best_itinerary=itinerary.itinerary_id,
         total_duration_s=itinerary.total_duration_s,
@@ -358,6 +372,7 @@ def plan_private_vehicle(
         total_transit_distance_m=round(distance_m, 2),
         total_vehicle_distance_m=round(distance_m, 2),
         score=score,
+        metrics=schemas.ResponseMetrics(overall=metrics),
         itineraries=[itinerary],
         note="Private vehicle OSRM route.",
     )

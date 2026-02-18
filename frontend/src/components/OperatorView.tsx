@@ -32,6 +32,8 @@ interface OperatorViewProps {
   onStartDepotWizard: (defaults: { vehicles: number; capacity: number }) => void;
   depotWizardActive: boolean;
   onGtfsUploaded: (payload: { gtfs_id: string; gtfs_name: string; job_id: string; status: string }) => void;
+  showDepotHexes: boolean;
+  onToggleDepotHexes: (value: boolean) => void;
   evaluating?: boolean;
 }
 
@@ -44,6 +46,8 @@ export function OperatorView({
   onStartDepotWizard,
   depotWizardActive,
   onGtfsUploaded,
+  showDepotHexes,
+  onToggleDepotHexes,
   evaluating = false
 }: OperatorViewProps) {
   const [selectedModes, setSelectedModes] = useState<Set<string>>(new Set());
@@ -258,6 +262,23 @@ export function OperatorView({
                     className="w-full"
                   />
                 </div>
+              </div>
+            </div>
+
+            {/* Map Overlays */}
+            <div className="mb-6">
+              <label className="block text-sm mb-3">Map Overlays</label>
+              <label className="flex items-center justify-between rounded-lg border px-3 py-2 text-sm text-gray-700">
+                <span>Show Service Hex Grid</span>
+                <input
+                  type="checkbox"
+                  checked={showDepotHexes}
+                  onChange={(e) => onToggleDepotHexes(e.target.checked)}
+                  className="h-4 w-4"
+                />
+              </label>
+              <div className="mt-2 text-xs text-gray-500">
+                Hex grid always shows during depot selection.
               </div>
             </div>
 

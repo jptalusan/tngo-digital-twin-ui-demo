@@ -207,6 +207,7 @@ class FixedLineResponse(BaseModel):
     total_transit_distance_m: Optional[float] = None
     total_vehicle_distance_m: Optional[float] = None
     score: Optional[ScoreBreakdown] = None
+    metrics: Optional["ResponseMetrics"] = None
     itineraries: List[Itinerary]
     note: str
 
@@ -239,6 +240,7 @@ class OnDemandResponse(BaseModel):
     total_vehicle_distance_m: float
     itineraries: List[Itinerary]
     score: ScoreBreakdown
+    metrics: Optional["ResponseMetrics"] = None
     note: str
 
 
@@ -250,6 +252,7 @@ class ItineraryMetrics(BaseModel):
     total_walk_m: float
     total_transit_distance_m: float
     total_vehicle_distance_m: float
+    geometry: Optional[str] = None
     score: ScoreBreakdown
 
 
@@ -277,6 +280,7 @@ class MultimodalResponse(BaseModel):
     total_transit_distance_m: Optional[float] = None
     total_vehicle_distance_m: Optional[float] = None
     score: Optional[ScoreBreakdown] = None
+    metrics: Optional["ResponseMetrics"] = None
     itineraries: List[MultimodalItinerary]
     note: str
 
@@ -302,8 +306,14 @@ class PrivateVehicleResponse(BaseModel):
     total_transit_distance_m: Optional[float] = None
     total_vehicle_distance_m: Optional[float] = None
     score: Optional[ScoreBreakdown] = None
+    metrics: Optional["ResponseMetrics"] = None
     itineraries: List[Itinerary]
     note: str
+
+
+class ResponseMetrics(BaseModel):
+    """Top-level response metrics."""
+    overall: ItineraryMetrics
 
 
 class OnDemandEvaluateRequest(BaseModel):

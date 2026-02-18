@@ -33,6 +33,7 @@ export default function App() {
   const [itineraries, setItineraries] = useState<any[]>([]);
   const [itineraryMode, setItineraryMode] = useState<string>('');
   const [selectedItineraryId, setSelectedItineraryId] = useState<string | null>(null);
+  const [baseMapStyle, setBaseMapStyle] = useState<'standard' | 'light'>('standard');
   const [depotWizardOpen, setDepotWizardOpen] = useState(false);
   const [depotWizardStep, setDepotWizardStep] = useState<DepotWizardStep>('pick-location');
   const [draftDepotLocation, setDraftDepotLocation] = useState<{ coords: [number, number]; address?: string } | null>(null);
@@ -43,7 +44,15 @@ export default function App() {
   const [depotZoneError, setDepotZoneError] = useState<string | null>(null);
   const [selectedDepotId, setSelectedDepotId] = useState<string | null>(null);
   const [wizardPinnedHex, setWizardPinnedHex] = useState<string | null>(null);
+  const [showDepotHexes, setShowDepotHexes] = useState(false);
   const [gtfsUploads, setGtfsUploads] = useState<Array<{ gtfs_id: string; gtfs_name: string; job_id: string; status: string }>>([]);
+  const [gtfsPreview, setGtfsPreview] = useState<{
+    gtfs_id: string;
+    routes: Array<{ agency: string; route_ids: string[] }>;
+    stops: Array<{ stop_id: string; name: string | null; lat: number; lon: number }>;
+    shape_points: Array<{ shape_id: string; lat: number; lon: number; sequence: number }>;
+  } | null>(null);
+  const [gtfsPreviewLoadingId, setGtfsPreviewLoadingId] = useState<string | null>(null);
 
   const mapLoading = loading || evaluating;
   const loadingLabel = loading ? 'Loading routes...' : 'Evaluating service...';
@@ -148,6 +157,7 @@ export default function App() {
     setDraftDepotCapacity(defaults.capacity);
     setDepotZoneError(null);
     setWizardPinnedHex(null);
+    setShowDepotHexes(true);
   }, []);
 
   const closeDepotWizard = useCallback(() => {
@@ -217,6 +227,45 @@ export default function App() {
     });
   }, [getHexNeighbors, wizardPinnedHex]);
 
+  const gtfsMarkers = useMemo(() => {
+    if (!gtfsPreview) return [];
+    return gtfsPreview.stops.map((stop) => ({
+      id: `gtfs-stop-${stop.stop_id}`,
+      coordinates: [stop.lat, stop.lon] as [number, number],
+      type: 'gtfs-stop' as const,
+      description: stop.name ?? undefined
+    }));
+  }, [gtfsPreview]);
+  const gtfsRoutes = useMemo(() => {
+    if (!gtfsPreview) return [];
+    const grouped = new Map<string, Array<{ lat: number; lon: number; sequence: number }>>();
+    gtfsPreview.shape_points.forEach((point) => {
+      const list = grouped.get(point.shape_id) ?? [];
+      list.push(point);
+      grouped.set(point.shape_id, list);
+    });
+    const routes: RoutePolyline[] = [];
+    grouped.forEach((points, shapeId) => {
+      const sorted = points.sort((a, b) => a.sequence - b.sequence);
+      if (sorted.length < 2) return;
+      const maxPoints = 200;
+      const step = Math.max(1, Math.ceil(sorted.length / maxPoints));
+      const sampled = sorted.filter((_, index) => index % step === 0);
+      if (sampled.length < 2) return;
+      routes.push({
+        id: `gtfs-shape-${shapeId}`,
+        coordinates: sampled.map((point) => [point.lat, point.lon] as [number, number]),
+        color: '#f97316',
+        weight: 4,
+        opacity: 0.75,
+        outlineColor: '#0f172a',
+        outlineWeight: 7,
+        outlineOpacity: 0.7
+      });
+    });
+    return routes;
+  }, [gtfsPreview]);
+
   // Generate markers for map
   const markers = useMemo(() => {
     const m: Marker[] = [];
@@ -265,9 +314,10 @@ export default function App() {
           });
         }
       }
+      m.push(...gtfsMarkers);
     }
     return m;
-  }, [viewMode, origin, destination, depots, depotWizardOpen, draftDepotLocation, selectedDepotId]);
+  }, [viewMode, origin, destination, depots, depotWizardOpen, draftDepotLocation, selectedDepotId, gtfsMarkers]);
   const depotHexes = useMemo(
     () => depots.flatMap((depot) => depot.serviceZoneHexes ?? []),
     [depots]
@@ -342,6 +392,9 @@ export default function App() {
         });
       });
     }
+    if (viewMode === 'operator' && gtfsRoutes.length > 0) {
+      polylines.push(...gtfsRoutes);
+    }
     return polylines;
   }, [
     viewMode,
@@ -351,7 +404,8 @@ export default function App() {
     itineraries,
     selectedItineraryId,
     selectedItinerary,
-    extractItineraryGeometry
+    extractItineraryGeometry,
+    gtfsRoutes
   ]);
 
   // Map layers for evaluation
@@ -716,6 +770,7 @@ export default function App() {
       setDepots((prev) => [...prev, depot]);
       setSelectedDepotId(depot.id);
       closeDepotWizard();
+      setShowDepotHexes(false);
     } catch (error) {
       console.error('[api] createDepot error:', error);
     }
@@ -803,6 +858,28 @@ export default function App() {
       <div className="h-16 bg-white border-b flex items-center justify-between px-6">
         <h1 className="text-2xl">Transit Planner</h1>
         <div className="flex gap-3">
+          <div className="flex gap-2">
+            <button
+              onClick={() => setBaseMapStyle('standard')}
+              className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                baseMapStyle === 'standard'
+                  ? 'bg-slate-900 text-white'
+                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+              }`}
+            >
+              Standard Map
+            </button>
+            <button
+              onClick={() => setBaseMapStyle('light')}
+              className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                baseMapStyle === 'light'
+                  ? 'bg-slate-900 text-white'
+                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+              }`}
+            >
+              Light (No Labels)
+            </button>
+          </div>
           <button
             onClick={() => handleViewModeChange('passenger')}
             className={`px-6 py-2 rounded-lg font-medium transition-colors ${
@@ -852,6 +929,8 @@ export default function App() {
             onStartDepotWizard={startDepotWizard}
             depotWizardActive={depotWizardOpen}
             onGtfsUploaded={handleGtfsUploaded}
+            showDepotHexes={showDepotHexes}
+            onToggleDepotHexes={setShowDepotHexes}
             evaluating={evaluating}
           />
         )}
@@ -867,6 +946,7 @@ export default function App() {
                 onMapRightClick={handleMapRightClick}
                 highlightedSegment={highlightedSegment}
                 layers={mapLayers}
+                baseMapStyle={baseMapStyle}
                 showHexGrid={viewMode === 'operator' && depotWizardOpen && depotWizardStep === 'select-zone'}
                 selectedHexes={draftDepotHexes}
                 onHexClick={depotWizardOpen && depotWizardStep === 'select-zone' ? toggleDepotHex : undefined}
@@ -910,7 +990,15 @@ export default function App() {
                   onMapRightClick={handleMapRightClick}
                   highlightedSegment={highlightedSegment}
                   layers={mapLayers}
+                  baseMapStyle={baseMapStyle}
                   showHexGrid={viewMode === 'operator' && (depotWizardOpen || depots.length > 0)}
+                  hexDisplayMode={
+                    depotWizardOpen && depotWizardStep === 'select-zone'
+                      ? 'grid'
+                      : showDepotHexes
+                      ? 'grid'
+                      : 'established-only'
+                  }
                   selectedHexes={depotWizardOpen ? draftDepotHexes : []}
                   establishedHexes={depotHexes}
                   activeHexes={activeDepotHexes}
@@ -1123,11 +1211,67 @@ export default function App() {
                     <div className="px-4 py-3 text-sm font-semibold text-slate-700">GTFS</div>
                     <div className="px-4 pb-4 space-y-2">
                       {gtfsUploads.map((upload) => (
-                        <div key={upload.gtfs_id} className="rounded-lg border border-slate-200 p-3 text-xs text-slate-600">
+                        <button
+                          key={upload.gtfs_id}
+                          type="button"
+                          onClick={async () => {
+                            if (gtfsPreview?.gtfs_id === upload.gtfs_id) {
+                              setGtfsPreview(null);
+                              return;
+                            }
+                            setGtfsPreviewLoadingId(upload.gtfs_id);
+                            try {
+                              const response = await fetch(buildUrl(`/gtfs/${upload.gtfs_id}/preview?limit=15`));
+                              if (!response.ok) {
+                                throw new Error(await response.text());
+                              }
+                              const payload = await response.json();
+                              const shapePoints = payload?.shape_points ?? [];
+                              const stops = payload?.stops ?? [];
+                              const routes = payload?.routes ?? [];
+                              const uniqueShapeIds = Array.from(
+                                new Set(shapePoints.map((point: any) => point.shape_id))
+                              );
+                              console.log('[gtfs] preview summary', {
+                                gtfs_id: payload?.gtfs_id,
+                                stops_count: stops.length,
+                                shape_points_count: shapePoints.length,
+                                routes_count: routes.length,
+                                shape_ids_count: uniqueShapeIds.length
+                              });
+                              console.log('[gtfs] preview keys', {
+                                payload: payload ? Object.keys(payload) : [],
+                                first_stop_keys: stops[0] ? Object.keys(stops[0]) : [],
+                                first_shape_point_keys: shapePoints[0] ? Object.keys(shapePoints[0]) : [],
+                                first_route_keys: routes[0] ? Object.keys(routes[0]) : []
+                              });
+                              console.log('[gtfs] preview samples', {
+                                first_stop: stops[0] ?? null,
+                                first_shape_point: shapePoints[0] ?? null,
+                                first_route: routes[0] ?? null,
+                                first_shape_id: uniqueShapeIds[0] ?? null,
+                                last_shape_id: uniqueShapeIds[uniqueShapeIds.length - 1] ?? null
+                              });
+                              setGtfsPreview(payload);
+                            } catch (error) {
+                              console.error('[api] gtfs preview error:', error);
+                            } finally {
+                              setGtfsPreviewLoadingId(null);
+                            }
+                          }}
+                          className={`w-full text-left rounded-lg border p-3 text-xs transition-colors ${
+                            gtfsPreview?.gtfs_id === upload.gtfs_id
+                              ? 'border-orange-400 bg-orange-50'
+                              : 'border-slate-200 hover:border-slate-300'
+                          }`}
+                        >
                           <div className="font-semibold text-slate-800">{upload.gtfs_name}</div>
                           <div className="mt-1">GTFS ID: {upload.gtfs_id}</div>
                           <div className="mt-1">Status: {upload.status}</div>
-                        </div>
+                          {gtfsPreviewLoadingId === upload.gtfs_id && (
+                            <div className="mt-2 text-xs text-slate-500">Loading preview…</div>
+                          )}
+                        </button>
                       ))}
                     </div>
                   </div>

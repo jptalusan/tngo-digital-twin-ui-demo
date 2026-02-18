@@ -15,7 +15,7 @@ const leafletStyles = `
 export interface Marker {
   id: string;
   coordinates: [number, number];
-  type: 'origin' | 'destination' | 'depot';
+  type: 'origin' | 'destination' | 'depot' | 'gtfs-stop';
   label?: string;
   description?: string;
 }
@@ -46,12 +46,15 @@ interface MapViewProps {
   onMapRightClick?: (coordinates: [number, number], x: number, y: number) => void;
   highlightedSegment?: [number, number][];
   layers?: MapLayer[];
+  baseMapStyle?: 'standard' | 'light';
   showHexGrid?: boolean;
+  hexDisplayMode?: 'grid' | 'established-only';
   selectedHexes?: string[];
   establishedHexes?: string[];
   activeHexes?: string[];
   onHexClick?: (hexId: string) => void;
   allowMapPan?: boolean;
+  onBoundsChange?: (bounds: { south: number; west: number; north: number; east: number }) => void;
 }
 
 export function MapView({
@@ -61,12 +64,15 @@ export function MapView({
   onMapRightClick,
   highlightedSegment,
   layers = [],
+  baseMapStyle = 'standard',
   showHexGrid = false,
+  hexDisplayMode = 'grid',
   selectedHexes = [],
   establishedHexes = [],
   activeHexes = [],
   onHexClick,
-  allowMapPan = true
+  allowMapPan = true,
+  onBoundsChange
 }: MapViewProps) {
   const mapRef = useRef<L.Map | null>(null);
   const mapContainerRef = useRef<HTMLDivElement>(null);
@@ -75,6 +81,8 @@ export function MapView({
   const highlightLayerRef = useRef<L.Polyline | null>(null);
   const layersGroupRef = useRef<L.LayerGroup | null>(null);
   const hexLayerRef = useRef<L.LayerGroup | null>(null);
+  const tileLayerRef = useRef<L.TileLayer | null>(null);
+  const markerRendererRef = useRef<L.Renderer | null>(null);
   const lastBoundsRef = useRef<string>('');
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
 
@@ -92,15 +100,22 @@ export function MapView({
       }
     }
 
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    const standardLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '© OpenStreetMap contributors'
-    }).addTo(map);
+    });
+    const lightLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png', {
+      attribution: '© OpenStreetMap contributors © CARTO'
+    });
+    tileLayerRef.current = baseMapStyle === 'light' ? lightLayer : standardLayer;
+    tileLayerRef.current.addTo(map);
 
     mapRef.current = map;
-      markersLayerRef.current = L.layerGroup().addTo(map);
-      routesLayerRef.current = L.layerGroup().addTo(map);
-      layersGroupRef.current = L.layerGroup().addTo(map);
-      hexLayerRef.current = L.layerGroup({ pane: 'hexes' }).addTo(map);
+    markersLayerRef.current = L.layerGroup().addTo(map);
+    routesLayerRef.current = L.layerGroup().addTo(map);
+    layersGroupRef.current = L.layerGroup().addTo(map);
+    hexLayerRef.current = L.layerGroup({ pane: 'hexes' }).addTo(map);
+    markerRendererRef.current = L.canvas();
+    markerRendererRef.current.addTo(map);
 
     if (typeof ResizeObserver !== 'undefined') {
       resizeObserverRef.current = new ResizeObserver(() => {
@@ -116,6 +131,24 @@ export function MapView({
       mapRef.current = null;
     };
   }, []);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const nextLayer = baseMapStyle === 'light'
+      ? L.tileLayer('https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png', {
+          attribution: '© OpenStreetMap contributors © CARTO'
+        })
+      : L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          attribution: '© OpenStreetMap contributors'
+        });
+
+    if (tileLayerRef.current) {
+      map.removeLayer(tileLayerRef.current);
+    }
+    tileLayerRef.current = nextLayer;
+    tileLayerRef.current.addTo(map);
+  }, [baseMapStyle]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -148,40 +181,47 @@ export function MapView({
         return;
       }
 
-      const viewSW = viewBounds.getSouthWest();
-      const viewNE = viewBounds.getNorthEast();
-      const regionSW = regionBounds.getSouthWest();
-      const regionNE = regionBounds.getNorthEast();
-      const southWest = L.latLng(
-        Math.max(viewSW.lat, regionSW.lat),
-        Math.max(viewSW.lng, regionSW.lng)
-      );
-      const northEast = L.latLng(
-        Math.min(viewNE.lat, regionNE.lat),
-        Math.min(viewNE.lng, regionNE.lng)
-      );
-      const boundary: [number, number][] = [
-        [southWest.lat, southWest.lng],
-        [southWest.lat, northEast.lng],
-        [northEast.lat, northEast.lng],
-        [northEast.lat, southWest.lng],
-        [southWest.lat, southWest.lng]
-      ];
-
       let hexes: string[] = [];
-      try {
-        // Use lat/lng boundary array to avoid GeoJSON option mismatches.
-        hexes = h3.polygonToCells([boundary], hexResolution);
-      } catch (error) {
-        console.warn('[hex] failed to build hex grid', error);
-        hexLayer.clearLayers();
-        return;
+      if (hexDisplayMode === 'established-only') {
+        const combined = new Set<string>([...selectedHexes, ...establishedHexes, ...activeHexes]);
+        hexes = Array.from(combined).filter((hexId) => {
+          try {
+            const [lat, lng] = h3.cellToLatLng(hexId);
+            return viewBounds.contains([lat, lng]);
+          } catch {
+            return false;
+          }
+        });
+      } else {
+        const viewSW = viewBounds.getSouthWest();
+        const viewNE = viewBounds.getNorthEast();
+        const regionSW = regionBounds.getSouthWest();
+        const regionNE = regionBounds.getNorthEast();
+        const southWest = L.latLng(
+          Math.max(viewSW.lat, regionSW.lat),
+          Math.max(viewSW.lng, regionSW.lng)
+        );
+        const northEast = L.latLng(
+          Math.min(viewNE.lat, regionNE.lat),
+          Math.min(viewNE.lng, regionNE.lng)
+        );
+        const boundary: [number, number][] = [
+          [southWest.lat, southWest.lng],
+          [southWest.lat, northEast.lng],
+          [northEast.lat, northEast.lng],
+          [northEast.lat, southWest.lng],
+          [southWest.lat, southWest.lng]
+        ];
+
+        try {
+          // Use lat/lng boundary array to avoid GeoJSON option mismatches.
+          hexes = h3.polygonToCells([boundary], hexResolution);
+        } catch (error) {
+          console.warn('[hex] failed to build hex grid', error);
+          hexLayer.clearLayers();
+          return;
+        }
       }
-      console.log('[hex] build', {
-        showHexGrid,
-        count: hexes.length,
-        onHexClick: Boolean(onHexClick)
-      });
       hexLayer.clearLayers();
       const selected = new Set(selectedHexes);
       const established = new Set(establishedHexes);
@@ -230,7 +270,7 @@ export function MapView({
       map.off('moveend zoomend', buildHexes);
       hexLayer.clearLayers();
     };
-  }, [showHexGrid, selectedHexes, onHexClick]);
+  }, [showHexGrid, hexDisplayMode, selectedHexes, establishedHexes, activeHexes, onHexClick]);
 
   // Handle map clicks
   useEffect(() => {
@@ -283,6 +323,30 @@ export function MapView({
     };
   }, [onMapRightClick]);
 
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !onBoundsChange) return;
+
+    const emitBounds = () => {
+      const bounds = map.getBounds();
+      const sw = bounds.getSouthWest();
+      const ne = bounds.getNorthEast();
+      onBoundsChange({
+        south: sw.lat,
+        west: sw.lng,
+        north: ne.lat,
+        east: ne.lng
+      });
+    };
+
+    emitBounds();
+    map.on('moveend zoomend', emitBounds);
+
+    return () => {
+      map.off('moveend zoomend', emitBounds);
+    };
+  }, [onBoundsChange]);
+
   // Update markers
   useEffect(() => {
     if (!markersLayerRef.current) return;
@@ -290,6 +354,20 @@ export function MapView({
     markersLayerRef.current.clearLayers();
 
     markers.forEach(marker => {
+      if (marker.type === 'gtfs-stop') {
+        L.circleMarker(marker.coordinates, {
+          radius: 5,
+          color: '#b45309',
+          weight: 2,
+          fillColor: '#f59e0b',
+          fillOpacity: 0.9,
+          renderer: markerRendererRef.current ?? undefined,
+          interactive: false,
+          pane: 'overlayPane'
+        }).addTo(markersLayerRef.current!);
+        return;
+      }
+
       let markerIcon: L.DivIcon;
 
       if (marker.type === 'origin') {

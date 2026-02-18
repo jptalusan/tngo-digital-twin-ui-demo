@@ -15,6 +15,7 @@ from app.crud import gtfs as gtfs_crud
 from app.models.gtfs import Stop
 from app.logging.config import get_logger
 from app.services.leg_geometry import fill_leg_metrics, aggregate_geometry, fill_leg_addresses
+from app.services.itinerary_metrics import compute_itinerary_metrics
 from app.services import hubs
 from app.services.leg_merge import merge_walk_on_demand
 
@@ -413,6 +414,7 @@ def _metrics_for_legs(
         total_walk_m=round(total_walk_m, 2),
         total_transit_distance_m=round(total_transit_distance_m, 2),
         total_vehicle_distance_m=round(total_vehicle_distance_m, 2),
+        geometry=aggregate_geometry(legs),
         score=score,
     )
 
@@ -617,6 +619,15 @@ def plan_multimodal(
     results = results[: max(1, limit)]
     best = results[0] if results else None
     best_overall = best.metrics.overall if best else None
+    response_metrics = (
+        schemas.ResponseMetrics(
+            overall=compute_itinerary_metrics(
+                best.legs, weight_total, weight_wait, weight_walk
+            )
+        )
+        if best
+        else None
+    )
     return schemas.MultimodalResponse(
         best_itinerary=best.itinerary_id if best else None,
         total_duration_s=best_overall.total_duration_s if best_overall else None,
@@ -626,6 +637,7 @@ def plan_multimodal(
         total_transit_distance_m=best_overall.total_transit_distance_m if best_overall else None,
         total_vehicle_distance_m=best_overall.total_vehicle_distance_m if best_overall else None,
         score=best_overall.score if best_overall else None,
+        metrics=response_metrics,
         itineraries=results,
         note="Multimodal itineraries with per-segment metrics.",
     )
