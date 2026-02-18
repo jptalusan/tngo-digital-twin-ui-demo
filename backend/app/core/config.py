@@ -47,6 +47,10 @@ class Settings:
     transfer_walk_radius_m: int = int(os.getenv("TRANSFER_WALK_RADIUS_M", "300"))
     enable_osrm: bool = os.getenv("ENABLE_OSRM", "false").lower() == "true"
     osrm_url: str = os.getenv("OSRM_URL", "http://localhost:5000")
+    enable_nominatim: bool = os.getenv("ENABLE_NOMINATIM", "true").lower() == "true"
+    nominatim_url: str = os.getenv("NOMINATIM_URL", "https://nominatim.openstreetmap.org")
+    nominatim_user_agent: str = os.getenv("NOMINATIM_USER_AGENT", "tngo-digital-twin")
+    nominatim_email: str = os.getenv("NOMINATIM_EMAIL", "")
     database_url_test: str = os.getenv(
         "DATABASE_URL_TEST",
         "postgresql+psycopg://postgres:postgres@localhost:5432/tngo_test",

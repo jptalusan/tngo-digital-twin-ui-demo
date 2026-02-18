@@ -11,6 +11,7 @@ from app.services import ondemand as ondemand_service
 from app.crud import ondemand as ondemand_crud
 from app.core.config import settings
 from app.services.leg_merge import merge_walk_on_demand
+from app.services.leg_geometry import fill_leg_addresses
 
 router = APIRouter(tags=["on-demand"])
 
@@ -163,6 +164,7 @@ def plan_on_demand(
         score=score,
     )
     itinerary.legs = merge_walk_on_demand(itinerary.legs)
+    fill_leg_addresses(itinerary.legs)
 
     return schemas.OnDemandResponse(
         vehicle_id=result.vehicle_id,
@@ -243,6 +245,7 @@ def plan_private_vehicle(
         score=score,
     )
 
+    fill_leg_addresses(itinerary.legs)
     return schemas.PrivateVehicleResponse(
         best_itinerary=itinerary.itinerary_id,
         total_duration_s=itinerary.total_duration_s,

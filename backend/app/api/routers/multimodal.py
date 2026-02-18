@@ -13,7 +13,7 @@ from app.crud import ondemand as ondemand_crud
 from app.crud import gtfs as gtfs_crud
 from app.models.gtfs import Stop
 from app.logging.config import get_logger
-from app.services.leg_geometry import fill_leg_metrics, aggregate_geometry
+from app.services.leg_geometry import fill_leg_metrics, aggregate_geometry, fill_leg_addresses
 from app.services import hubs
 from app.services.leg_merge import merge_walk_on_demand
 
@@ -490,6 +490,7 @@ def plan_multimodal(
                 ),
             ),
         )
+        fill_leg_addresses(only_ondemand.legs)
         results.append(
             schemas.MultimodalItinerary(
                 itinerary_id=f"multi-{itinerary_counter}",
@@ -539,6 +540,7 @@ def plan_multimodal(
                         egress_leg = build_leg([stop.lat, stop.lon], payload.destination) if build_leg else None
 
             combined = _combine(access_leg, base, None, weight_total, weight_wait, weight_walk)
+            fill_leg_addresses(combined.legs)
             results.append(
                 schemas.MultimodalItinerary(
                     itinerary_id=f"multi-{itinerary_counter}",
@@ -559,6 +561,7 @@ def plan_multimodal(
             itinerary_counter += 1
 
             combined = _combine(None, base, egress_leg, weight_total, weight_wait, weight_walk)
+            fill_leg_addresses(combined.legs)
             results.append(
                 schemas.MultimodalItinerary(
                     itinerary_id=f"multi-{itinerary_counter}",
@@ -579,6 +582,7 @@ def plan_multimodal(
             itinerary_counter += 1
 
             combined = _combine(access_leg, base, egress_leg, weight_total, weight_wait, weight_walk)
+            fill_leg_addresses(combined.legs)
             results.append(
                 schemas.MultimodalItinerary(
                     itinerary_id=f"multi-{itinerary_counter}",

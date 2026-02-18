@@ -11,6 +11,51 @@ from app.schemas import planning as schemas
 from app.services.planning import get_distance_m
 
 
+def fill_leg_addresses(legs: list[schemas.Leg]) -> None:
+    if not settings.enable_nominatim:
+        return
+
+    cache: dict[tuple[float, float], str] = {}
+
+    def _reverse(lat: float, lon: float) -> str | None:
+        key = (round(lat, 6), round(lon, 6))
+        if key in cache:
+            return cache[key]
+        url = f"{settings.nominatim_url.rstrip('/')}/reverse"
+        params = {
+            "format": "jsonv2",
+            "lat": lat,
+            "lon": lon,
+            "zoom": 18,
+            "addressdetails": 1,
+        }
+        headers = {"User-Agent": settings.nominatim_user_agent}
+        if settings.nominatim_email:
+            headers["From"] = settings.nominatim_email
+        try:
+            with httpx.Client(timeout=8.0) as client:
+                resp = client.get(url, params=params, headers=headers)
+                resp.raise_for_status()
+                data = resp.json()
+        except Exception:
+            return None
+        display_name = data.get("display_name")
+        if not display_name:
+            return None
+        cache[key] = display_name
+        return display_name
+
+    for leg in legs:
+        if leg.from_coords and not leg.from_address:
+            address = _reverse(leg.from_coords.lat, leg.from_coords.lon)
+            if address:
+                leg.from_address = address
+        if leg.to_coords and not leg.to_address:
+            address = _reverse(leg.to_coords.lat, leg.to_coords.lon)
+            if address:
+                leg.to_address = address
+
+
 def fill_leg_metrics(
     session: Session,
     origin: list[float],
@@ -139,6 +184,8 @@ def fill_leg_metrics(
                 leg.distance_m = round(dist, 2)
             if leg.duration_s is None and dur is not None:
                 leg.duration_s = int(round(dur))
+
+    fill_leg_addresses(legs)
 
 
 def _decode_polyline(polyline: str) -> list[tuple[float, float]]:

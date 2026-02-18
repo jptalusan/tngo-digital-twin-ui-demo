@@ -159,6 +159,8 @@ class BaseLeg(BaseModel):
     to_stop_id: Optional[str] = None
     from_coords: Optional[Coordinate] = None
     to_coords: Optional[Coordinate] = None
+    from_address: Optional[str] = None
+    to_address: Optional[str] = None
     distance_m: Optional[float] = None
     duration_s: Optional[int] = None
     geometry: Optional[str] = None

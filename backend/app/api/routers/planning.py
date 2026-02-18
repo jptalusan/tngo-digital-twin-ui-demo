@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import math
-import random
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, HTTPException
+import httpx
 from sqlalchemy.orm import Session
 
 from app.db import get_session
@@ -10,6 +10,7 @@ from app.schemas import planning as schemas
 from app.services import planning as planning_service
 from app.crud import ondemand as ondemand_crud
 from app.crud import gtfs as gtfs_crud
+from app.core.config import settings
 
 router = APIRouter(tags=["planning"])
 
@@ -54,22 +55,36 @@ def autocomplete(
     "/reverse-geocode",
     response_model=schemas.ReverseGeocodeResponse,
     summary="Reverse geocode",
-    description="Mock reverse geocoding for a coordinate.",
+    description="Reverse geocoding for a coordinate using Nominatim.",
 )
 def reverse_geocode(payload: schemas.ReverseGeocodeRequest) -> schemas.ReverseGeocodeResponse:
     lat, lon = payload.coordinates
-    street_number = random.randint(1000, 9999)
-    streets = [
-        "Main St",
-        "Poplar Ave",
-        "Union Ave",
-        "Madison Ave",
-        "Park Ave",
-        "Highland St",
-    ]
-    street = random.choice(streets)
-    name = f"{street_number} {street}"
-    return schemas.ReverseGeocodeResponse(name=name, address=f"{name}, Memphis, TN")
+    if not settings.enable_nominatim:
+        raise HTTPException(status_code=503, detail="Nominatim reverse geocoding disabled.")
+
+    url = f"{settings.nominatim_url.rstrip('/')}/reverse"
+    params = {
+        "format": "jsonv2",
+        "lat": lat,
+        "lon": lon,
+        "zoom": 18,
+        "addressdetails": 1,
+    }
+    headers = {"User-Agent": settings.nominatim_user_agent}
+    if settings.nominatim_email:
+        headers["From"] = settings.nominatim_email
+
+    try:
+        with httpx.Client(timeout=8.0) as client:
+            resp = client.get(url, params=params, headers=headers)
+            resp.raise_for_status()
+            data = resp.json()
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    display_name = data.get("display_name") or "Unknown address"
+    name = data.get("name") or display_name.split(",")[0].strip()
+    return schemas.ReverseGeocodeResponse(name=name, address=display_name)
 
 
 @router.post(
