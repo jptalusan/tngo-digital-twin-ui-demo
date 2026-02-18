@@ -340,6 +340,29 @@ class OnDemandFulfillmentResponse(BaseModel):
     note: str
 
 
+class DepotSummary(BaseModel):
+    """Summary for on-demand depot listing."""
+    depot_id: str
+    name: str
+    lat: float
+    lon: float
+    h3_ids: list[str] = []
+    vehicles: list["VehicleSummary"] = []
+
+
+class VehicleSummary(BaseModel):
+    """Summary for on-demand vehicles."""
+    vehicle_id: str
+    capacity: int
+    status: Optional[str] = None
+
+
+class GtfsFeedSummary(BaseModel):
+    """Summary for GTFS feed listing."""
+    gtfs_id: str
+    gtfs_name: str
+
+
 class OnDemandSummaryResponse(BaseModel):
     """Summary of all on-demand requests."""
     total_requests: int

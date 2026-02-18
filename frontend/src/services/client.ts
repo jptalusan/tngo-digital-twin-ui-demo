@@ -221,6 +221,23 @@ const OnDemandResponse = z
     note: z.string(),
   })
   .passthrough();
+const VehicleSummary = z
+  .object({
+    vehicle_id: z.string(),
+    capacity: z.number().int(),
+    status: z.union([z.string(), z.null()]).optional(),
+  })
+  .passthrough();
+const DepotSummary = z
+  .object({
+    depot_id: z.string(),
+    name: z.string(),
+    lat: z.number(),
+    lon: z.number(),
+    h3_ids: z.array(z.string()).optional().default([]),
+    vehicles: z.array(VehicleSummary).optional().default([]),
+  })
+  .passthrough();
 const PrivateVehicleRequest = z
   .object({
     origin: z.array(z.number()).min(2).max(2),
@@ -399,6 +416,32 @@ const DemandSummary = z
 const DemandListResponse = z
   .object({ demands: z.array(DemandSummary) })
   .passthrough();
+const Body_upload_gtfs_api_gtfs_upload_post = z
+  .object({ gtfs_name: z.string(), file: z.instanceof(File) })
+  .passthrough();
+const GtfsUploadResponse = z
+  .object({
+    job_id: z.string(),
+    gtfs_id: z.string(),
+    gtfs_name: z.string(),
+    status: z.string(),
+  })
+  .passthrough();
+const GtfsJobStatus = z
+  .object({
+    job_id: z.string(),
+    gtfs_id: z.string(),
+    gtfs_name: z.string(),
+    status: z.string(),
+    error: z.union([z.string(), z.null()]),
+    row_counts: z.union([z.object({}).partial().passthrough(), z.null()]),
+    created_at: z.union([z.string(), z.null()]),
+    updated_at: z.union([z.string(), z.null()]),
+  })
+  .passthrough();
+const GtfsFeedListItem = z
+  .object({ gtfs_id: z.string(), gtfs_name: z.string() })
+  .passthrough();
 
 export const schemas = {
   AutocompleteResult,
@@ -427,6 +470,8 @@ export const schemas = {
   CreateDepotResponse,
   OnDemandRequest,
   OnDemandResponse,
+  VehicleSummary,
+  DepotSummary,
   PrivateVehicleRequest,
   PrivateVehicleResponse,
   OnDemandEvaluateRequest,
@@ -446,6 +491,10 @@ export const schemas = {
   NearestStop,
   DemandSummary,
   DemandListResponse,
+  Body_upload_gtfs_api_gtfs_upload_post,
+  GtfsUploadResponse,
+  GtfsJobStatus,
+  GtfsFeedListItem,
 };
 
 const endpoints = makeApi([
@@ -515,6 +564,58 @@ const endpoints = makeApi([
       },
     ],
     response: EvaluationResponse,
+    errors: [
+      {
+        status: 422,
+        description: `Validation Error`,
+        schema: HTTPValidationError,
+      },
+    ],
+  },
+  {
+    method: "get",
+    path: "/api/gtfs/jobs/:job_id",
+    alias: "get_gtfs_job_api_gtfs_jobs__job_id__get",
+    description: `Poll the status of an async GTFS upload job.`,
+    requestFormat: "json",
+    parameters: [
+      {
+        name: "job_id",
+        type: "Path",
+        schema: z.string(),
+      },
+    ],
+    response: GtfsJobStatus,
+    errors: [
+      {
+        status: 422,
+        description: `Validation Error`,
+        schema: HTTPValidationError,
+      },
+    ],
+  },
+  {
+    method: "get",
+    path: "/api/gtfs/list",
+    alias: "list_gtfs_feeds_api_gtfs_list_get",
+    description: `Return GTFS feeds for populating the operator view cards.`,
+    requestFormat: "json",
+    response: z.array(GtfsFeedListItem),
+  },
+  {
+    method: "post",
+    path: "/api/gtfs/upload",
+    alias: "upload_gtfs_api_gtfs_upload_post",
+    description: `Accept a GTFS zip file and a user-supplied name. Computes the MD5 hash of the file as gtfs_id. Returns 409 if the same file has already been uploaded. Processing runs in the background; poll GET /api/gtfs/jobs/{job_id} for status.`,
+    requestFormat: "form-data",
+    parameters: [
+      {
+        name: "body",
+        type: "Body",
+        schema: Body_upload_gtfs_api_gtfs_upload_post,
+      },
+    ],
+    response: GtfsUploadResponse,
     errors: [
       {
         status: 422,
@@ -640,6 +741,14 @@ const endpoints = makeApi([
         schema: HTTPValidationError,
       },
     ],
+  },
+  {
+    method: "get",
+    path: "/api/on-demand/list",
+    alias: "list_on_demand_depots_api_on_demand_list_get",
+    description: `Return depots for populating the operator view cards.`,
+    requestFormat: "json",
+    response: z.array(DepotSummary),
   },
   {
     method: "post",

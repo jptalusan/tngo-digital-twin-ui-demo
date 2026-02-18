@@ -14,6 +14,7 @@ from app.crud import ondemand as ondemand_crud
 from app.core.config import settings
 from app.services.leg_merge import merge_walk_on_demand
 from app.services.leg_geometry import fill_leg_addresses
+from app.models.ondemand import Depot, OnDemandServiceZone, OnDemandVehicle
 
 router = APIRouter(tags=["on-demand"])
 
@@ -240,6 +241,50 @@ def plan_on_demand(
         score=score,
         note=result.note,
     )
+
+
+@router.get(
+    "/on-demand/list",
+    response_model=list[schemas.DepotSummary],
+    summary="List on-demand depots",
+    description="Return depots for populating the operator view cards.",
+)
+def list_on_demand_depots(
+    session: Session = Depends(get_session),
+) -> list[schemas.DepotSummary]:
+    depots = session.query(Depot).all()
+    zones = session.query(OnDemandServiceZone).all()
+    vehicles = session.query(OnDemandVehicle).all()
+
+    zone_map: dict[str, list[str]] = {}
+    for zone in zones:
+        zone_map.setdefault(zone.depot_id, []).append(zone.hex_id)
+
+    vehicle_map: dict[str, list[schemas.VehicleSummary]] = {}
+    for vehicle in vehicles:
+        vehicle_map.setdefault(vehicle.depot_id, []).append(
+            schemas.VehicleSummary(
+                vehicle_id=vehicle.vehicle_id,
+                capacity=vehicle.capacity,
+                status=vehicle.status,
+            )
+        )
+
+    results: list[schemas.DepotSummary] = []
+    for depot in depots:
+        if depot.lat is None or depot.lon is None:
+            continue
+        results.append(
+            schemas.DepotSummary(
+                depot_id=depot.depot_id,
+                name=depot.name,
+                lat=depot.lat,
+                lon=depot.lon,
+                h3_ids=sorted(zone_map.get(depot.depot_id, [])),
+                vehicles=vehicle_map.get(depot.depot_id, []),
+            )
+        )
+    return results
 
 
 @router.post(

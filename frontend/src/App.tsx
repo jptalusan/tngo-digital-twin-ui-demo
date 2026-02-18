@@ -628,6 +628,66 @@ export default function App() {
     return () => window.clearInterval(interval);
   }, [gtfsUploads]);
 
+  useEffect(() => {
+    if (viewMode !== 'operator') return;
+
+    let cancelled = false;
+
+    const loadLists = async () => {
+      try {
+        const [depotsResponse, gtfsResponse] = await Promise.all([
+          apiService.listOnDemandDepots(),
+          apiService.listGtfsFeeds()
+        ]);
+
+        if (!cancelled) {
+          setDepots((prev) => {
+            const existingIds = new Set(prev.map((depot) => depot.id));
+            const incoming = depotsResponse
+              .filter((item) => !existingIds.has(item.depot_id))
+              .map((item) => {
+                const vehicleCount = item.vehicles?.length ?? 0;
+                const capacity =
+                  item.vehicles && item.vehicles.length > 0
+                    ? item.vehicles[0]?.capacity ?? 0
+                    : 0;
+                return {
+                  id: item.depot_id,
+                  coordinates: [item.lat, item.lon] as [number, number],
+                  vehicles: vehicleCount,
+                  capacity,
+                  address: item.name,
+                  serviceZoneHexes: item.h3_ids ?? []
+                };
+              });
+            return [...prev, ...incoming];
+          });
+
+          setGtfsUploads((prev) => {
+            const existingIds = new Set(prev.map((item) => item.gtfs_id));
+            const incoming = gtfsResponse
+              .filter((item) => !existingIds.has(item.gtfs_id))
+              .map((item) => ({
+                gtfs_id: item.gtfs_id,
+                gtfs_name: item.gtfs_name,
+                job_id: `gtfs-${item.gtfs_id}`,
+                status: 'available'
+              }));
+            return [...prev, ...incoming];
+          });
+        }
+      } catch (error) {
+        console.error('[api] list operator data error:', error);
+      }
+    };
+
+    loadLists();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [viewMode]);
+
   const handleSaveDepot = useCallback(async () => {
     if (!draftDepotLocation) return;
     const resolution = draftDepotHexes[0]
@@ -1021,9 +1081,9 @@ export default function App() {
                   paddingBottom: depotWizardOpen ? '220px' : undefined
                 }}
               >
-                <div className="h-full flex flex-col">
+                <div className="h-full flex flex-col overflow-y-auto">
                   <div className="px-4 py-3 border-b text-sm font-semibold text-slate-700">Depots</div>
-                  <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                  <div className="p-4 space-y-3">
                     {depots.map((depot, index) => (
                       <button
                         key={depot.id}
@@ -1058,7 +1118,6 @@ export default function App() {
                       </button>
                     ))}
                   </div>
-                </div>
                 {gtfsUploads.length > 0 && (
                   <div className="border-t border-slate-200">
                     <div className="px-4 py-3 text-sm font-semibold text-slate-700">GTFS</div>
@@ -1078,6 +1137,7 @@ export default function App() {
                     Wizard active — drawer pinned above.
                   </div>
                 )}
+                </div>
               </div>
             )}
           </div>

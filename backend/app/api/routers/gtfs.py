@@ -40,6 +40,11 @@ class GtfsJobStatus(BaseModel):
     updated_at: str | None
 
 
+class GtfsFeedListItem(BaseModel):
+    gtfs_id: str
+    gtfs_name: str
+
+
 # ── Background worker ─────────────────────────────────────────────────────────
 
 def _run_load(job_id: str, gtfs_id: str, zip_bytes: bytes) -> None:
@@ -162,3 +167,19 @@ def get_gtfs_job(
         created_at=job.created_at.isoformat() if job.created_at else None,
         updated_at=job.updated_at.isoformat() if job.updated_at else None,
     )
+
+
+@router.get(
+    "/gtfs/list",
+    response_model=list[GtfsFeedListItem],
+    summary="List GTFS feeds",
+    description="Return GTFS feeds for populating the operator view cards.",
+)
+def list_gtfs_feeds(
+    session: Session = Depends(get_session),
+) -> list[GtfsFeedListItem]:
+    feeds = session.execute(select(GtfsFeed)).scalars().all()
+    return [
+        GtfsFeedListItem(gtfs_id=feed.gtfs_id, gtfs_name=feed.gtfs_name)
+        for feed in feeds
+    ]

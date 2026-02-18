@@ -22,6 +22,8 @@ export type PrivateVehicleRequest = z.infer<typeof schemas.PrivateVehicleRequest
 export type PrivateVehicleResponse = z.infer<typeof schemas.PrivateVehicleResponse>;
 export type CreateDepotRequest = z.infer<typeof schemas.CreateDepotRequest>;
 export type CreateDepotResponse = z.infer<typeof schemas.CreateDepotResponse>;
+export type DepotSummary = z.infer<typeof schemas.DepotSummary>;
+export type GtfsFeedListItem = z.infer<typeof schemas.GtfsFeedListItem>;
 
 const apiBase =
   (import.meta.env.VITE_API_URL as string | undefined) ??
@@ -76,6 +78,14 @@ class ApiService {
   async createDepot(requestBody: CreateDepotRequest): Promise<CreateDepotResponse> {
     console.log('[api] createDepot body:', requestBody);
     return apiClient.create_depot_api_on_demand_depots_post(requestBody);
+  }
+
+  async listOnDemandDepots(): Promise<DepotSummary[]> {
+    return apiClient.list_on_demand_depots_api_on_demand_list_get();
+  }
+
+  async listGtfsFeeds(): Promise<GtfsFeedListItem[]> {
+    return apiClient.list_gtfs_feeds_api_gtfs_list_get();
   }
 }
 
