@@ -106,6 +106,7 @@ const FixedLineRequest = z
     score_weight_walk_meters: z.union([z.number(), z.null()]).optional(),
     boc_request: z.union([z.boolean(), z.null()]).optional().default(false),
     multimodal_limit: z.union([z.number(), z.null()]).optional(),
+    multimodal_number: z.union([z.number(), z.null()]).optional().default(3),
     force_taxi: z.union([z.boolean(), z.null()]).optional().default(false),
   })
   .passthrough();
@@ -128,6 +129,8 @@ const Leg = z
     to_stop_id: z.union([z.string(), z.null()]).optional(),
     from_coords: z.union([Coordinate, z.null()]).optional(),
     to_coords: z.union([Coordinate, z.null()]).optional(),
+    from_address: z.union([z.string(), z.null()]).optional(),
+    to_address: z.union([z.string(), z.null()]).optional(),
     distance_m: z.union([z.number(), z.null()]).optional(),
     duration_s: z.union([z.number(), z.null()]).optional(),
     geometry: z.union([z.string(), z.null()]).optional(),
@@ -282,6 +285,8 @@ const OnDemandManifestLeg = z
     to_stop_id: z.union([z.string(), z.null()]).optional(),
     from_coords: z.union([Coordinate, z.null()]).optional(),
     to_coords: z.union([Coordinate, z.null()]).optional(),
+    from_address: z.union([z.string(), z.null()]).optional(),
+    to_address: z.union([z.string(), z.null()]).optional(),
     distance_m: z.union([z.number(), z.null()]).optional(),
     duration_s: z.union([z.number(), z.null()]).optional(),
     geometry: z.union([z.string(), z.null()]).optional(),
@@ -691,7 +696,7 @@ const endpoints = makeApi([
     method: "post",
     path: "/api/reverse-geocode",
     alias: "reverse_geocode_api_reverse_geocode_post",
-    description: `Mock reverse geocoding for a coordinate.`,
+    description: `Reverse geocoding for a coordinate using Nominatim.`,
     requestFormat: "json",
     parameters: [
       {
