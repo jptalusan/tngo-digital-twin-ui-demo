@@ -7,8 +7,10 @@ import { ItineraryDrawer } from './components/ItineraryDrawer';
 import { MapLegend, LegendItem } from './components/MapLegend';
 import { MapContextMenu } from './components/MapContextMenu';
 import { apiService, AutocompleteResult, Route, EvaluationResponse } from './services/api';
+import * as h3 from 'h3-js';
 
 type ViewMode = 'passenger' | 'operator';
+type DepotWizardStep = 'pick-location' | 'select-zone' | 'vehicles';
 
 export default function App() {
   const [viewMode, setViewMode] = useState<ViewMode>('passenger');
@@ -19,7 +21,6 @@ export default function App() {
   const [selectedRouteIndex, setSelectedRouteIndex] = useState<number>(0);
   const [highlightedSegment, setHighlightedSegment] = useState<[number, number][] | undefined>();
   const [depots, setDepots] = useState<Depot[]>([]);
-  const [mapClickEnabled, setMapClickEnabled] = useState(false);
   const [busRoutes, setBusRoutes] = useState<BusRoute[]>([]);
   const [evaluationResult, setEvaluationResult] = useState<EvaluationResponse | null>(null);
   const [showEvaluationDrawer, setShowEvaluationDrawer] = useState(false);
@@ -31,6 +32,14 @@ export default function App() {
   const [itineraries, setItineraries] = useState<any[]>([]);
   const [itineraryMode, setItineraryMode] = useState<string>('');
   const [selectedItineraryId, setSelectedItineraryId] = useState<string | null>(null);
+  const [depotWizardOpen, setDepotWizardOpen] = useState(false);
+  const [depotWizardStep, setDepotWizardStep] = useState<DepotWizardStep>('pick-location');
+  const [draftDepotLocation, setDraftDepotLocation] = useState<{ coords: [number, number]; address?: string } | null>(null);
+  const [draftDepotHexes, setDraftDepotHexes] = useState<string[]>([]);
+  const [draftDepotVehicles, setDraftDepotVehicles] = useState(5);
+  const [draftDepotCapacity, setDraftDepotCapacity] = useState(4);
+  const [depotGeocoding, setDepotGeocoding] = useState(false);
+  const [depotZoneError, setDepotZoneError] = useState<string | null>(null);
 
   const mapLoading = loading || evaluating;
   const loadingLabel = loading ? 'Loading routes...' : 'Evaluating service...';
@@ -126,6 +135,78 @@ export default function App() {
     if (parts.length <= 4) return parts.join(', ');
     return parts.slice(0, 4).join(', ');
   };
+  const startDepotWizard = useCallback((defaults: { vehicles: number; capacity: number }) => {
+    setDepotWizardOpen(true);
+    setDepotWizardStep('pick-location');
+    setDraftDepotLocation(null);
+    setDraftDepotHexes([]);
+    setDraftDepotVehicles(defaults.vehicles);
+    setDraftDepotCapacity(defaults.capacity);
+    setDepotZoneError(null);
+  }, []);
+
+  const closeDepotWizard = useCallback(() => {
+    setDepotWizardOpen(false);
+    setDepotWizardStep('pick-location');
+    setDraftDepotLocation(null);
+    setDraftDepotHexes([]);
+    setDepotZoneError(null);
+  }, []);
+
+  const getHexNeighbors = useCallback((hexId: string) => {
+    const gridDisk = (h3 as any).gridDisk ?? (h3 as any).kRing;
+    if (!gridDisk) return [];
+    try {
+      return gridDisk(hexId, 1) as string[];
+    } catch (error) {
+      console.warn('[hex] failed to fetch neighbors', error);
+      return [];
+    }
+  }, []);
+
+  const isHexSelectionContiguous = useCallback((hexes: string[]) => {
+    if (hexes.length <= 1) return true;
+    const set = new Set(hexes);
+    const visited = new Set<string>();
+    const stack = [hexes[0]];
+    visited.add(hexes[0]);
+    while (stack.length > 0) {
+      const current = stack.pop()!;
+      const neighbors = getHexNeighbors(current);
+      neighbors.forEach((neighbor) => {
+        if (set.has(neighbor) && !visited.has(neighbor)) {
+          visited.add(neighbor);
+          stack.push(neighbor);
+        }
+      });
+    }
+    return visited.size === set.size;
+  }, [getHexNeighbors]);
+
+  const toggleDepotHex = useCallback((hexId: string) => {
+    setDraftDepotHexes((prev) => {
+      const next = new Set(prev);
+      if (next.has(hexId)) {
+        next.delete(hexId);
+        setDepotZoneError(null);
+        return Array.from(next);
+      }
+      if (next.size === 0) {
+        next.add(hexId);
+        setDepotZoneError(null);
+        return Array.from(next);
+      }
+      const neighbors = getHexNeighbors(hexId).filter((neighbor) => neighbor !== hexId);
+      const isAdjacent = neighbors.some((neighbor) => next.has(neighbor));
+      if (!isAdjacent) {
+        setDepotZoneError('Selection must be contiguous (touching sides only).');
+        return prev;
+      }
+      next.add(hexId);
+      setDepotZoneError(null);
+      return Array.from(next);
+    });
+  }, [getHexNeighbors]);
 
   // Generate markers for map
   const markers = useMemo(() => {
@@ -156,9 +237,17 @@ export default function App() {
           label: `D${index + 1}`
         });
       });
+      if (depotWizardOpen && draftDepotLocation) {
+        m.push({
+          id: 'draft-depot',
+          coordinates: draftDepotLocation.coords,
+          type: 'depot',
+          label: 'D*'
+        });
+      }
     }
     return m;
-  }, [viewMode, origin, destination, depots]);
+  }, [viewMode, origin, destination, depots, depotWizardOpen, draftDepotLocation]);
 
   useEffect(() => {
     if (itineraries.length === 0) {
@@ -357,12 +446,24 @@ export default function App() {
   };
 
   const handleMapClick = useCallback((coordinates: [number, number]) => {
-    if (mapClickEnabled && typeof window !== 'undefined' && (window as any).handleOperatorMapClick) {
-      (window as any).handleOperatorMapClick(coordinates);
+    if (depotWizardOpen && depotWizardStep === 'pick-location') {
+      const fallbackName = formatCoordinates(coordinates);
+      setDraftDepotLocation({ coords: coordinates, address: fallbackName });
+      setDepotGeocoding(true);
+      apiService
+        .reverseGeocode({ coordinates: [coordinates[0], coordinates[1]] })
+        .then((res) => {
+          const address = res.address || res.name || fallbackName;
+          setDraftDepotLocation({ coords: coordinates, address: truncateAddress(address) });
+        })
+        .catch(() => {})
+        .finally(() => setDepotGeocoding(false));
+      setContextMenu(null);
+      return;
     }
     // Close context menu when clicking
     setContextMenu(null);
-  }, [mapClickEnabled]);
+  }, [depotWizardOpen, depotWizardStep, formatCoordinates, truncateAddress]);
 
   const handleMapRightClick = useCallback((coordinates: [number, number], x: number, y: number) => {
     setContextMenu({ x, y, coordinates });
@@ -418,13 +519,29 @@ export default function App() {
       .catch(() => {});
   };
 
-  const handleAddDepot = (depot: Depot) => {
-    setDepots([...depots, depot]);
-  };
-
   const handleRemoveDepot = (id: string) => {
     setDepots(depots.filter(d => d.id !== id));
   };
+
+  const handleSaveDepot = useCallback(() => {
+    if (!draftDepotLocation) return;
+    const depot: Depot = {
+      id: `depot-${Date.now()}`,
+      coordinates: draftDepotLocation.coords,
+      vehicles: draftDepotVehicles,
+      capacity: draftDepotCapacity,
+      address: draftDepotLocation.address,
+      serviceZoneHexes: draftDepotHexes
+    };
+    setDepots((prev) => [...prev, depot]);
+    closeDepotWizard();
+  }, [
+    draftDepotLocation,
+    draftDepotVehicles,
+    draftDepotCapacity,
+    draftDepotHexes,
+    closeDepotWizard
+  ]);
 
   const handleBusRouteUpdate = (routes: BusRoute[]) => {
     setBusRoutes(routes);
@@ -483,8 +600,9 @@ export default function App() {
     setEvaluationResult(null);
     setShowEvaluationDrawer(false);
     setLegendItems([]);
-    setMapClickEnabled(false);
+    closeDepotWizard();
   };
+
 
   const MapLoadingOverlay = () => (
     <div className="absolute inset-0 z-[1000] flex items-center justify-center bg-white/70 backdrop-blur-sm">
@@ -542,13 +660,13 @@ export default function App() {
           />
         ) : (
           <OperatorView
-            onAddDepot={handleAddDepot}
             onRemoveDepot={handleRemoveDepot}
             depots={depots}
-            onMapClickEnabled={setMapClickEnabled}
             onBusRouteUpdate={handleBusRouteUpdate}
             onEvaluate={handleEvaluate}
             onReset={handleResetOperator}
+            onStartDepotWizard={startDepotWizard}
+            depotWizardActive={depotWizardOpen}
             evaluating={evaluating}
           />
         )}
@@ -564,6 +682,9 @@ export default function App() {
                 onMapRightClick={handleMapRightClick}
                 highlightedSegment={highlightedSegment}
                 layers={mapLayers}
+                showHexGrid={viewMode === 'operator' && depotWizardOpen && depotWizardStep === 'select-zone'}
+                selectedHexes={draftDepotHexes}
+                onHexClick={depotWizardOpen && depotWizardStep === 'select-zone' ? toggleDepotHex : undefined}
               />
               {mapLoading && <MapLoadingOverlay />}
             </div>
@@ -594,35 +715,209 @@ export default function App() {
             )}
           </div>
         ) : (
-          <div className="relative flex-1 min-h-0">
-            <MapView
-              markers={markers}
-              routes={routePolylines}
-              onMapClick={handleMapClick}
-              onMapRightClick={handleMapRightClick}
-              highlightedSegment={highlightedSegment}
-              layers={mapLayers}
-            />
-            {mapLoading && <MapLoadingOverlay />}
-            <div className="absolute inset-0 z-10 pointer-events-none">
-              {/* Map Legend */}
-              {viewMode === 'operator' && evaluationResult && (
-                <div className="pointer-events-auto">
-                  <MapLegend items={legendItems} onToggle={handleLegendToggle} />
-                </div>
-              )}
+          <div className="flex flex-1 min-h-0 min-w-0">
+            <div className="relative flex-1 min-h-0 min-w-0 flex flex-col">
+              <div className="relative flex-1 min-h-0 min-w-0">
+                <MapView
+                  markers={markers}
+                  routes={routePolylines}
+                  onMapClick={handleMapClick}
+                  onMapRightClick={handleMapRightClick}
+                  highlightedSegment={highlightedSegment}
+                  layers={mapLayers}
+                  showHexGrid={viewMode === 'operator' && depotWizardOpen && depotWizardStep === 'select-zone'}
+                  selectedHexes={draftDepotHexes}
+                  onHexClick={depotWizardOpen && depotWizardStep === 'select-zone' ? toggleDepotHex : undefined}
+                />
+                {mapLoading && <MapLoadingOverlay />}
+                <div className="absolute inset-0 z-10 pointer-events-none">
+                {/* Map Legend */}
+                {viewMode === 'operator' && evaluationResult && (
+                  <div className="pointer-events-auto">
+                    <MapLegend items={legendItems} onToggle={handleLegendToggle} />
+                  </div>
+                )}
 
-              {/* Evaluation Drawer */}
-              {viewMode === 'operator' && (
-                <div className="pointer-events-auto">
-                  <EvaluationDrawer
-                    isOpen={showEvaluationDrawer}
-                    onClose={() => setShowEvaluationDrawer(false)}
-                    metrics={evaluationResult?.metrics || null}
-                  />
+                {/* Evaluation Drawer */}
+                {viewMode === 'operator' && (
+                  <div className="pointer-events-auto">
+                    <EvaluationDrawer
+                      isOpen={showEvaluationDrawer}
+                      onClose={() => setShowEvaluationDrawer(false)}
+                      metrics={evaluationResult?.metrics || null}
+                    />
+                  </div>
+                )}
+                </div>
+              </div>
+              {depotWizardOpen && (
+                <div className="shrink-0 border-t border-slate-200 bg-white shadow-[0_-10px_30px_rgba(0,0,0,0.08)]">
+                  <div className="mx-auto w-full max-w-[900px]">
+                    <div className="border-b px-4 py-3">
+                      <div className="text-sm font-semibold text-slate-800">Add Depot</div>
+                      <div className="text-xs text-slate-500">
+                        {depotWizardStep === 'pick-location' && 'Step 1 of 3: Pick location'}
+                        {depotWizardStep === 'select-zone' && 'Step 2 of 3: Select service zone'}
+                        {depotWizardStep === 'vehicles' && 'Step 3 of 3: Vehicles & capacity'}
+                      </div>
+                    </div>
+
+                    {depotWizardStep === 'pick-location' && (
+                      <div className="px-4 py-4 space-y-3">
+                        <div className="text-sm text-slate-700">
+                          Pick a spot on the map to place the depot.
+                        </div>
+                        <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                          {draftDepotLocation
+                            ? `${draftDepotLocation.address ?? formatCoordinates(draftDepotLocation.coords)}`
+                            : 'No location selected yet.'}
+                          {depotGeocoding && <span className="ml-2 text-slate-400">Looking up address...</span>}
+                        </div>
+                      </div>
+                    )}
+
+                    {depotWizardStep === 'select-zone' && (
+                      <div className="px-4 py-4 space-y-3">
+                        <div className="text-sm text-slate-700">
+                          Select contiguous hexagons for the service zone.
+                        </div>
+                        <div className="text-xs text-slate-600">
+                          Selected hexes: <span className="font-semibold text-slate-800">{draftDepotHexes.length}</span>
+                        </div>
+                        {depotZoneError && (
+                          <div className="text-xs text-red-600">{depotZoneError}</div>
+                        )}
+                      </div>
+                    )}
+
+                    {depotWizardStep === 'vehicles' && (
+                      <div className="px-4 py-4 space-y-4">
+                        <div className="text-sm text-slate-700">
+                          Set a homogeneous fleet size and capacity for this depot.
+                        </div>
+                        <div className="space-y-3">
+                          <div>
+                            <label className="block text-xs text-slate-600 mb-1">Vehicles</label>
+                            <input
+                              type="number"
+                              min={1}
+                              value={draftDepotVehicles}
+                              onChange={(e) => setDraftDepotVehicles(parseInt(e.target.value) || 0)}
+                              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs text-slate-600 mb-1">Vehicle Capacity</label>
+                            <input
+                              type="number"
+                              min={1}
+                              value={draftDepotCapacity}
+                              onChange={(e) => setDraftDepotCapacity(parseInt(e.target.value) || 0)}
+                              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="border-t px-4 py-3 flex items-center justify-between">
+                      <button
+                        onClick={closeDepotWizard}
+                        className="text-sm text-slate-600 hover:text-slate-800"
+                      >
+                        Cancel
+                      </button>
+                      <div className="flex gap-2">
+                        {depotWizardStep !== 'pick-location' && (
+                          <button
+                            onClick={() => {
+                              if (depotWizardStep === 'select-zone') {
+                                setDepotWizardStep('pick-location');
+                              } else {
+                                setDepotWizardStep('select-zone');
+                              }
+                            }}
+                            className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50"
+                          >
+                            Back
+                          </button>
+                        )}
+                        {depotWizardStep === 'pick-location' && (
+                          <button
+                            onClick={() => setDepotWizardStep('select-zone')}
+                            disabled={!draftDepotLocation}
+                            className="rounded-lg bg-blue-600 px-3 py-1.5 text-sm text-white hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed"
+                          >
+                            Next
+                          </button>
+                        )}
+                        {depotWizardStep === 'select-zone' && (
+                          <button
+                            onClick={() => {
+                              if (draftDepotHexes.length === 0) {
+                                setDepotZoneError('Select at least one hexagon.');
+                                return;
+                              }
+                              if (!isHexSelectionContiguous(draftDepotHexes)) {
+                                setDepotZoneError('Selection must be contiguous (touching sides only).');
+                                return;
+                              }
+                              setDepotZoneError(null);
+                              setDepotWizardStep('vehicles');
+                            }}
+                            className="rounded-lg bg-blue-600 px-3 py-1.5 text-sm text-white hover:bg-blue-700"
+                          >
+                            Done
+                          </button>
+                        )}
+                        {depotWizardStep === 'vehicles' && (
+                          <button
+                            onClick={handleSaveDepot}
+                            className="rounded-lg bg-green-600 px-3 py-1.5 text-sm text-white hover:bg-green-700"
+                          >
+                            Save Depot
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
                 </div>
               )}
             </div>
+            {depots.length > 0 && (
+              <div
+                className="h-full shrink-0 border-l bg-white shadow-xl"
+                style={{ width: '26vw', maxWidth: '26vw', minWidth: '26vw' }}
+              >
+                <div className="h-full flex flex-col">
+                  <div className="px-4 py-3 border-b text-sm font-semibold text-slate-700">Depots</div>
+                  <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                    {depots.map((depot, index) => (
+                      <div key={depot.id} className="rounded-lg border border-slate-200 p-3">
+                        <div className="text-sm font-semibold text-slate-800">
+                          Depot {index + 1}
+                        </div>
+                        <div className="text-xs text-slate-500 mt-1">
+                          {depot.address ?? formatCoordinates(depot.coordinates)}
+                        </div>
+                        <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-slate-600">
+                          <div>
+                            <span className="font-medium text-slate-700">Vehicles:</span> {depot.vehicles}
+                          </div>
+                          <div>
+                            <span className="font-medium text-slate-700">Capacity:</span> {depot.capacity}
+                          </div>
+                          <div className="col-span-2">
+                            <span className="font-medium text-slate-700">Service Hexes:</span>{' '}
+                            {depot.serviceZoneHexes?.length ?? 0}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>

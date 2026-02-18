@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import L from 'leaflet';
+import * as h3 from 'h3-js';
 
 // Inline critical Leaflet CSS to avoid import issues
 const leafletStyles = `
@@ -45,15 +46,29 @@ interface MapViewProps {
   onMapRightClick?: (coordinates: [number, number], x: number, y: number) => void;
   highlightedSegment?: [number, number][];
   layers?: MapLayer[];
+  showHexGrid?: boolean;
+  selectedHexes?: string[];
+  onHexClick?: (hexId: string) => void;
 }
 
-export function MapView({ markers, routes, onMapClick, onMapRightClick, highlightedSegment, layers = [] }: MapViewProps) {
+export function MapView({
+  markers,
+  routes,
+  onMapClick,
+  onMapRightClick,
+  highlightedSegment,
+  layers = [],
+  showHexGrid = false,
+  selectedHexes = [],
+  onHexClick
+}: MapViewProps) {
   const mapRef = useRef<L.Map | null>(null);
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const markersLayerRef = useRef<L.LayerGroup | null>(null);
   const routesLayerRef = useRef<L.LayerGroup | null>(null);
   const highlightLayerRef = useRef<L.Polyline | null>(null);
   const layersGroupRef = useRef<L.LayerGroup | null>(null);
+  const hexLayerRef = useRef<L.LayerGroup | null>(null);
   const lastBoundsRef = useRef<string>('');
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
 
@@ -71,6 +86,7 @@ export function MapView({ markers, routes, onMapClick, onMapRightClick, highligh
     markersLayerRef.current = L.layerGroup().addTo(map);
     routesLayerRef.current = L.layerGroup().addTo(map);
     layersGroupRef.current = L.layerGroup().addTo(map);
+    hexLayerRef.current = L.layerGroup().addTo(map);
 
     if (typeof ResizeObserver !== 'undefined') {
       resizeObserverRef.current = new ResizeObserver(() => {
@@ -86,6 +102,100 @@ export function MapView({ markers, routes, onMapClick, onMapRightClick, highligh
       mapRef.current = null;
     };
   }, []);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    const hexLayer = hexLayerRef.current;
+    if (!map || !hexLayer) return;
+
+    const parseBounds = () => {
+      const raw = (import.meta.env.VITE_DEMAND_HEX_BOUNDS as string | undefined) ?? '';
+      if (!raw) return null;
+      const parts = raw.split(',').map((part) => Number(part.trim()));
+      if (parts.length !== 4 || parts.some((value) => Number.isNaN(value))) return null;
+      const [minLat, minLng, maxLat, maxLng] = parts;
+      return L.latLngBounds([minLat, minLng], [maxLat, maxLng]);
+    };
+
+    const defaultBounds = L.latLngBounds([34.9829, -90.3103], [36.6781, -81.6469]);
+    const regionBounds = parseBounds() ?? defaultBounds;
+    const rawResolution = Number((import.meta.env.VITE_DEMAND_HEX_RES as string | undefined) ?? 7);
+    const hexResolution = Number.isFinite(rawResolution) ? Math.max(0, Math.min(15, rawResolution)) : 7;
+
+    const buildHexes = () => {
+      if (!showHexGrid) {
+        hexLayer.clearLayers();
+        return;
+      }
+
+      const viewBounds = map.getBounds();
+      if (!regionBounds.intersects(viewBounds)) {
+        hexLayer.clearLayers();
+        return;
+      }
+
+      const viewSW = viewBounds.getSouthWest();
+      const viewNE = viewBounds.getNorthEast();
+      const regionSW = regionBounds.getSouthWest();
+      const regionNE = regionBounds.getNorthEast();
+      const southWest = L.latLng(
+        Math.max(viewSW.lat, regionSW.lat),
+        Math.max(viewSW.lng, regionSW.lng)
+      );
+      const northEast = L.latLng(
+        Math.min(viewNE.lat, regionNE.lat),
+        Math.min(viewNE.lng, regionNE.lng)
+      );
+      const boundary: [number, number][] = [
+        [southWest.lat, southWest.lng],
+        [southWest.lat, northEast.lng],
+        [northEast.lat, northEast.lng],
+        [northEast.lat, southWest.lng],
+        [southWest.lat, southWest.lng]
+      ];
+
+      let hexes: string[] = [];
+      try {
+        // Use lat/lng boundary array to avoid GeoJSON option mismatches.
+        hexes = h3.polygonToCells([boundary], hexResolution);
+      } catch (error) {
+        console.warn('[hex] failed to build hex grid', error);
+        hexLayer.clearLayers();
+        return;
+      }
+      hexLayer.clearLayers();
+      const selected = new Set(selectedHexes);
+
+      hexes.forEach((hexId) => {
+        const isSelected = selected.has(hexId);
+        const boundary = h3.cellToBoundary(hexId, true).map(([lng, lat]) => [lat, lng] as [number, number]);
+        const polygon = L.polygon(boundary, {
+          color: isSelected ? '#1d4ed8' : '#2563eb',
+          weight: isSelected ? 2 : 1,
+          opacity: isSelected ? 0.9 : 0.5,
+          fillColor: isSelected ? '#60a5fa' : '#93c5fd',
+          fillOpacity: isSelected ? 0.35 : 0.12,
+          interactive: Boolean(onHexClick),
+          bubblingMouseEvents: false
+        });
+        if (onHexClick) {
+          polygon.on('click', (event) => {
+            L.DomEvent.stopPropagation(event);
+            onHexClick(hexId);
+          });
+        }
+        polygon.addTo(hexLayer);
+      });
+    };
+
+    buildHexes();
+    map.on('moveend zoomend', buildHexes);
+
+    return () => {
+      map.off('moveend zoomend', buildHexes);
+      hexLayer.clearLayers();
+    };
+  }, [showHexGrid, selectedHexes, onHexClick]);
 
   // Handle map clicks
   useEffect(() => {

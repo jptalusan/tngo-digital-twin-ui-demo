@@ -7,6 +7,8 @@ export interface Depot {
   coordinates: [number, number];
   vehicles: number;
   capacity: number;
+  address?: string;
+  serviceZoneHexes?: string[];
 }
 
 export interface BusRoute {
@@ -21,28 +23,27 @@ export interface BusRoute {
 }
 
 interface OperatorViewProps {
-  onAddDepot: (depot: Depot) => void;
   onRemoveDepot: (id: string) => void;
   depots: Depot[];
-  onMapClickEnabled: (enabled: boolean) => void;
   onBusRouteUpdate: (routes: BusRoute[]) => void;
   onEvaluate: () => void;
   onReset: () => void;
+  onStartDepotWizard: (defaults: { vehicles: number; capacity: number }) => void;
+  depotWizardActive: boolean;
   evaluating?: boolean;
 }
 
 export function OperatorView({ 
-  onAddDepot, 
   onRemoveDepot, 
   depots, 
-  onMapClickEnabled,
   onBusRouteUpdate,
   onEvaluate,
   onReset,
+  onStartDepotWizard,
+  depotWizardActive,
   evaluating = false
 }: OperatorViewProps) {
   const [selectedModes, setSelectedModes] = useState<Set<string>>(new Set());
-  const [addingDepot, setAddingDepot] = useState(false);
   const [newDepotVehicles, setNewDepotVehicles] = useState(5);
   const [newDepotCapacity, setNewDepotCapacity] = useState(4);
   const [busRoutes, setBusRoutes] = useState<BusRoute[]>([]);
@@ -51,6 +52,14 @@ export function OperatorView({
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [onDemandExpanded, setOnDemandExpanded] = useState(true);
   const [busExpanded, setBusExpanded] = useState(true);
+  const demandModels = [
+    { id: 'memphis-clustered', label: 'Memphis Clustered (Placeholder)', maxRange: 30 },
+    { id: 'nissan-boc', label: 'Nissan BOC (Placeholder)', maxRange: 20 },
+    { id: 'honda-boc', label: 'Honda BOC (Placeholder)', maxRange: 25 }
+  ];
+  const [selectedDemandModelId, setSelectedDemandModelId] = useState(demandModels[0].id);
+  const selectedDemandModel = demandModels.find((model) => model.id === selectedDemandModelId) ?? demandModels[0];
+  const [demandRange, setDemandRange] = useState(0);
 
   const toggleMode = (mode: string) => {
     const newModes = new Set(selectedModes);
@@ -63,27 +72,7 @@ export function OperatorView({
   };
 
   const handleAddDepotClick = () => {
-    setAddingDepot(true);
-    onMapClickEnabled(true);
-  };
-
-  const handleAddDepot = (coordinates: [number, number]) => {
-    if (addingDepot) {
-      const depot: Depot = {
-        id: `depot-${Date.now()}`,
-        coordinates,
-        vehicles: newDepotVehicles,
-        capacity: newDepotCapacity
-      };
-      onAddDepot(depot);
-      setAddingDepot(false);
-      onMapClickEnabled(false);
-    }
-  };
-
-  const handleCancelAddDepot = () => {
-    setAddingDepot(false);
-    onMapClickEnabled(false);
+    onStartDepotWizard({ vehicles: newDepotVehicles, capacity: newDepotCapacity });
   };
 
   const addBusRoute = () => {
@@ -149,7 +138,6 @@ export function OperatorView({
 
   // Expose handleAddDepot to parent via window object for map clicks
   if (typeof window !== 'undefined') {
-    (window as any).handleOperatorMapClick = handleAddDepot;
     (window as any).handleOperatorSetOrigin = (coordinates: [number, number]) =>
       setRouteEndpoint('origin', coordinates);
     (window as any).handleOperatorSetDestination = (coordinates: [number, number]) =>
@@ -187,6 +175,47 @@ export function OperatorView({
         <>
           <div className="p-6 w-full flex-1 overflow-y-auto">
 
+
+            {/* Demand Models */}
+            <div className="mb-6">
+              <label className="block text-sm mb-3">Demand Model</label>
+              <div className="space-y-3">
+                <select
+                  value={selectedDemandModelId}
+                  onChange={(e) => {
+                    const nextId = e.target.value;
+                    setSelectedDemandModelId(nextId);
+                    const nextModel = demandModels.find((model) => model.id === nextId);
+                    if (nextModel && demandRange > nextModel.maxRange) {
+                      setDemandRange(nextModel.maxRange);
+                    }
+                  }}
+                  className="w-full px-3 py-2 border rounded-lg bg-white"
+                >
+                  {demandModels.map((model) => (
+                    <option key={model.id} value={model.id}>
+                      {model.label}
+                    </option>
+                  ))}
+                </select>
+                <div>
+                  <div className="flex items-center justify-between text-xs text-gray-600 mb-2">
+                    <span>Range</span>
+                    <span>
+                      {demandRange} / {selectedDemandModel.maxRange}
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min={0}
+                    max={selectedDemandModel.maxRange}
+                    value={demandRange}
+                    onChange={(e) => setDemandRange(parseInt(e.target.value) || 0)}
+                    className="w-full"
+                  />
+                </div>
+              </div>
+            </div>
 
             {/* Mode Selection */}
             <div className="mb-6">
@@ -253,22 +282,14 @@ export function OperatorView({
                       />
                     </div>
 
-                    {!addingDepot ? (
-                      <button
-                        onClick={handleAddDepotClick}
-                        className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-                      >
-                        <Plus size={20} />
-                        <span>Add Depot (Click Map)</span>
-                      </button>
-                    ) : (
-                      <button
-                        onClick={handleCancelAddDepot}
-                        className="w-full px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700"
-                      >
-                        Cancel
-                      </button>
-                    )}
+                    <button
+                      onClick={handleAddDepotClick}
+                      disabled={depotWizardActive}
+                      className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+                    >
+                      <Plus size={20} />
+                      <span>{depotWizardActive ? 'Adding Depot...' : 'Add Depot'}</span>
+                    </button>
 
                     {depots.length > 0 && (
                       <div className="mt-4 space-y-2">
