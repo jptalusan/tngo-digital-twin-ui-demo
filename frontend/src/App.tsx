@@ -7,6 +7,7 @@ import { ItineraryDrawer } from './components/ItineraryDrawer';
 import { MapLegend, LegendItem } from './components/MapLegend';
 import { MapContextMenu } from './components/MapContextMenu';
 import { apiService, AutocompleteResult, Route, EvaluationResponse } from './services/api';
+import { buildUrl } from './services/http';
 import * as h3 from 'h3-js';
 
 type ViewMode = 'passenger' | 'operator';
@@ -42,6 +43,7 @@ export default function App() {
   const [depotZoneError, setDepotZoneError] = useState<string | null>(null);
   const [selectedDepotId, setSelectedDepotId] = useState<string | null>(null);
   const [wizardPinnedHex, setWizardPinnedHex] = useState<string | null>(null);
+  const [gtfsUploads, setGtfsUploads] = useState<Array<{ gtfs_id: string; gtfs_name: string; job_id: string; status: string }>>([]);
 
   const mapLoading = loading || evaluating;
   const loadingLabel = loading ? 'Loading routes...' : 'Evaluating service...';
@@ -586,6 +588,46 @@ export default function App() {
     }
   };
 
+  const handleGtfsUploaded = useCallback((payload: { gtfs_id: string; gtfs_name: string; job_id: string; status: string }) => {
+    setGtfsUploads((prev) => [payload, ...prev]);
+  }, []);
+
+  useEffect(() => {
+    const pendingJobs = gtfsUploads.filter((upload) => upload.status === 'pending' || upload.status === 'processing');
+    if (pendingJobs.length === 0) return;
+
+    const interval = window.setInterval(async () => {
+      try {
+        const updates = await Promise.all(
+          pendingJobs.map(async (upload) => {
+            console.log('[gtfs] polling', upload.job_id);
+            const response = await fetch(buildUrl(`/gtfs/jobs/${upload.job_id}`));
+            if (!response.ok) {
+              return upload;
+            }
+            const payload = await response.json();
+            console.log('[gtfs] status', upload.job_id, payload.status);
+            return {
+              ...upload,
+              status: payload.status ?? upload.status
+            };
+          })
+        );
+
+        setGtfsUploads((prev) =>
+          prev.map((upload) => {
+            const update = updates.find((item) => item.job_id === upload.job_id);
+            return update ?? upload;
+          })
+        );
+      } catch (error) {
+        console.error('[api] gtfs polling error:', error);
+      }
+    }, 2000);
+
+    return () => window.clearInterval(interval);
+  }, [gtfsUploads]);
+
   const handleSaveDepot = useCallback(async () => {
     if (!draftDepotLocation) return;
     const resolution = draftDepotHexes[0]
@@ -749,6 +791,7 @@ export default function App() {
             onReset={handleResetOperator}
             onStartDepotWizard={startDepotWizard}
             depotWizardActive={depotWizardOpen}
+            onGtfsUploaded={handleGtfsUploaded}
             evaluating={evaluating}
           />
         )}
@@ -968,7 +1011,7 @@ export default function App() {
                 </div>
               )}
             </div>
-            {depots.length > 0 && (
+            {(depots.length > 0 || gtfsUploads.length > 0) && (
               <div
                 className="h-full shrink-0 border-l bg-white shadow-xl flex flex-col"
                 style={{
@@ -1016,6 +1059,20 @@ export default function App() {
                     ))}
                   </div>
                 </div>
+                {gtfsUploads.length > 0 && (
+                  <div className="border-t border-slate-200">
+                    <div className="px-4 py-3 text-sm font-semibold text-slate-700">GTFS</div>
+                    <div className="px-4 pb-4 space-y-2">
+                      {gtfsUploads.map((upload) => (
+                        <div key={upload.gtfs_id} className="rounded-lg border border-slate-200 p-3 text-xs text-slate-600">
+                          <div className="font-semibold text-slate-800">{upload.gtfs_name}</div>
+                          <div className="mt-1">GTFS ID: {upload.gtfs_id}</div>
+                          <div className="mt-1">Status: {upload.status}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 {depotWizardOpen && (
                   <div className="border-t border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-600">
                     Wizard active — drawer pinned above.

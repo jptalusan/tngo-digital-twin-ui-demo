@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { Car, Bus, Plus, Trash2, Upload, PlayCircle, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, RotateCcw } from 'lucide-react';
 import { apiService } from '../services/api';
+import { buildUrl } from '../services/http';
 
 export interface Depot {
   id: string;
@@ -30,6 +31,7 @@ interface OperatorViewProps {
   onReset: () => void;
   onStartDepotWizard: (defaults: { vehicles: number; capacity: number }) => void;
   depotWizardActive: boolean;
+  onGtfsUploaded: (payload: { gtfs_id: string; gtfs_name: string; job_id: string; status: string }) => void;
   evaluating?: boolean;
 }
 
@@ -41,6 +43,7 @@ export function OperatorView({
   onReset,
   onStartDepotWizard,
   depotWizardActive,
+  onGtfsUploaded,
   evaluating = false
 }: OperatorViewProps) {
   const [selectedModes, setSelectedModes] = useState<Set<string>>(new Set());
@@ -49,6 +52,9 @@ export function OperatorView({
   const [busRoutes, setBusRoutes] = useState<BusRoute[]>([]);
   const [activeBusRouteId, setActiveBusRouteId] = useState<string | null>(null);
   const [gtfsMode, setGtfsMode] = useState(false);
+  const [gtfsUploading, setGtfsUploading] = useState(false);
+  const [gtfsError, setGtfsError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [onDemandExpanded, setOnDemandExpanded] = useState(true);
   const [busExpanded, setBusExpanded] = useState(true);
@@ -73,6 +79,44 @@ export function OperatorView({
 
   const handleAddDepotClick = () => {
     onStartDepotWizard({ vehicles: newDepotVehicles, capacity: newDepotCapacity });
+  };
+
+  const handleGtfsFileSelected = async (file: File | null) => {
+    if (!file) return;
+    if (!file.name.toLowerCase().endsWith('.zip')) {
+      setGtfsError('Please select a .zip file.');
+      return;
+    }
+    setGtfsError(null);
+    setGtfsUploading(true);
+    try {
+      const formData = new FormData();
+      const gtfsName = file.name.replace(/\.zip$/i, '');
+      formData.append('gtfs_name', gtfsName);
+      formData.append('file', file);
+
+      const response = await fetch(buildUrl('/gtfs/upload'), {
+        method: 'POST',
+        body: formData
+      });
+
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(text || response.statusText);
+      }
+
+      const payload = await response.json();
+      console.log('[api] gtfs upload response:', payload);
+      onGtfsUploaded(payload);
+    } catch (error) {
+      console.error('[api] gtfs upload error:', error);
+      setGtfsError('Upload failed. Check console for details.');
+    } finally {
+      setGtfsUploading(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
   };
 
   const addBusRoute = () => {
@@ -350,9 +394,23 @@ export function OperatorView({
                       <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
                         <Upload size={32} className="mx-auto mb-2 text-gray-400" />
                         <p className="text-sm text-gray-600 mb-3">Upload GTFS File</p>
-                        <button className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
-                          Choose File
+                        <input
+                          ref={fileInputRef}
+                          type="file"
+                          accept=".zip,application/zip"
+                          className="hidden"
+                          onChange={(e) => handleGtfsFileSelected(e.target.files?.[0] ?? null)}
+                        />
+                        <button
+                          onClick={() => fileInputRef.current?.click()}
+                          disabled={gtfsUploading}
+                          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+                        >
+                          {gtfsUploading ? 'Uploading...' : 'Choose File'}
                         </button>
+                        {gtfsError && (
+                          <div className="mt-3 text-xs text-red-600">{gtfsError}</div>
+                        )}
                       </div>
                     ) : (
                       <div>
