@@ -175,6 +175,15 @@ curl -X POST http://localhost:8000/api/reverse-geocode \
   }'
 ```
 
+## Reverse geocode (Nominatim)
+```bash
+curl -X POST http://localhost:8000/api/reverse-geocode \
+  -H "Content-Type: application/json" \
+  -d '{
+    "coordinates": [35.1495, -90.0490]
+  }'
+```
+
 ## Long distance Shelby (Memphis) to Stanton (BOC)
 ```bash
 curl -X POST http://localhost:8000/api/plan/fixed-line \

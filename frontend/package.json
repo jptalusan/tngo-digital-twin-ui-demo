@@ -54,13 +54,11 @@
           "@types/node": "^20.10.0",
           "@vitejs/plugin-react-swc": "^3.10.2",
           "openapi-zod-client": "^1.18.3",
-          "openapi-typescript": "^7.6.1",
           "vite": "6.3.5"
       },
       "scripts": {
           "dev": "vite",
           "build": "vite build",
-          "generate": "openapi-typescript ../backend/openapi.json -o src/services/client.ts",
-          "generate:zod": "openapi-zod-client ../backend/openapi.json -o src/services/client.ts"
+          "generate": "openapi-zod-client ../backend/openapi.json -o src/services/client.ts"
       }
   }

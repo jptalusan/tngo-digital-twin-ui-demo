@@ -58,6 +58,9 @@ export function ItineraryDrawer({
     return JSON.stringify(value);
   };
 
+  const formatCoord = (v: number | null | undefined) =>
+    v != null ? v.toFixed(3) : '—';
+
   const getScore = (itinerary: ItineraryLike) => {
     return (
       (itinerary as any)?.score ??
@@ -165,29 +168,41 @@ export function ItineraryDrawer({
                                   Leg {legIndex + 1} · {formatValue((leg as any)?.mode)}
                                 </div>
                               </div>
-                              <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-gray-600">
+                              <div className="mt-2 space-y-1.5 text-xs text-gray-600">
                                 <div>
                                   <div className="uppercase tracking-wide text-[10px] text-gray-400">From</div>
                                   <div className="text-gray-700 truncate">
-                                    {formatValue((leg as any)?.from_stop_id ?? (leg as any)?.from_coords?.lat)}
+                                    {(leg as any)?.from_address ?? (leg as any)?.from_stop_id ?? '—'}
                                   </div>
+                                  {(leg as any)?.from_coords && (
+                                    <div className="text-[10px] text-gray-400">
+                                      {formatCoord((leg as any).from_coords.lat)}, {formatCoord((leg as any).from_coords.lon)}
+                                    </div>
+                                  )}
                                 </div>
                                 <div>
                                   <div className="uppercase tracking-wide text-[10px] text-gray-400">To</div>
                                   <div className="text-gray-700 truncate">
-                                    {formatValue((leg as any)?.to_stop_id ?? (leg as any)?.to_coords?.lat)}
+                                    {(leg as any)?.to_address ?? (leg as any)?.to_stop_id ?? '—'}
                                   </div>
+                                  {(leg as any)?.to_coords && (
+                                    <div className="text-[10px] text-gray-400">
+                                      {formatCoord((leg as any).to_coords.lat)}, {formatCoord((leg as any).to_coords.lon)}
+                                    </div>
+                                  )}
                                 </div>
-                                <div>
-                                  <div className="uppercase tracking-wide text-[10px] text-gray-400">Distance</div>
-                                  <div className="text-gray-700">
-                                    {formatValue((leg as any)?.distance_m)} m
+                                <div className="grid grid-cols-2 gap-2 pt-1">
+                                  <div>
+                                    <div className="uppercase tracking-wide text-[10px] text-gray-400">Distance</div>
+                                    <div className="text-gray-700">
+                                      {formatValue((leg as any)?.distance_m)} m
+                                    </div>
                                   </div>
-                                </div>
-                                <div>
-                                  <div className="uppercase tracking-wide text-[10px] text-gray-400">Duration</div>
-                                  <div className="text-gray-700">
-                                    {formatValue((leg as any)?.duration_s)} s
+                                  <div>
+                                    <div className="uppercase tracking-wide text-[10px] text-gray-400">Duration</div>
+                                    <div className="text-gray-700">
+                                      {formatValue((leg as any)?.duration_s)} s
+                                    </div>
                                   </div>
                                 </div>
                               </div>

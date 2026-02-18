@@ -366,12 +366,20 @@ export default function App() {
       }
       return;
     }
+    const coords = contextMenu.coordinates;
+    const fallbackName = formatCoordinates(coords);
     const location: AutocompleteResult = {
       id: `map-origin-${Date.now()}`,
-      name: formatCoordinates(contextMenu.coordinates),
-      coordinates: contextMenu.coordinates
+      name: fallbackName,
+      coordinates: coords
     };
     setOrigin(location);
+    apiService
+      .reverseGeocode({ coordinates: [coords[0], coords[1]] })
+      .then((res) => {
+        setOrigin({ ...location, name: res.name || res.address || fallbackName });
+      })
+      .catch(() => {});
   };
 
   const handleSetDestination = async () => {
@@ -382,12 +390,20 @@ export default function App() {
       }
       return;
     }
+    const coords = contextMenu.coordinates;
+    const fallbackName = formatCoordinates(coords);
     const location: AutocompleteResult = {
       id: `map-dest-${Date.now()}`,
-      name: formatCoordinates(contextMenu.coordinates),
-      coordinates: contextMenu.coordinates
+      name: fallbackName,
+      coordinates: coords
     };
     setDestination(location);
+    apiService
+      .reverseGeocode({ coordinates: [coords[0], coords[1]] })
+      .then((res) => {
+        setDestination({ ...location, name: res.name || res.address || fallbackName });
+      })
+      .catch(() => {});
   };
 
   const handleAddDepot = (depot: Depot) => {
