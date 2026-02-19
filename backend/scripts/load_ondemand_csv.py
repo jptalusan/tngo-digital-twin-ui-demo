@@ -4,14 +4,12 @@ import csv
 from pathlib import Path
 import sys
 
-from geoalchemy2 import WKTElement
-
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
 from sqlalchemy import text
 
 from app.db import SessionLocal
-from app.models.ondemand import Depot, Vehicle, VehicleSchedule
+from app.models.ondemand import Depot, OnDemandVehicle, OnDemandServiceZone, VehicleSchedule
 
 
 def _read_csv(path: Path) -> list[dict]:
@@ -37,7 +35,8 @@ def main() -> None:
             "ondemand_trip",
             "ondemand_request",
             "vehicle_schedule",
-            "vehicle",
+            "ondemand_vehicle",
+            "ondemand_service_zone",
             "depot",
         ]:
             session.execute(text(f"TRUNCATE TABLE {table} RESTART IDENTITY CASCADE"))
@@ -50,15 +49,13 @@ def main() -> None:
                     name=row["name"],
                     lat=float(row["lat"]),
                     lon=float(row["lon"]),
-                    service_zone=WKTElement(row["service_zone_wkt"], srid=4326)
-                    if row.get("service_zone_wkt")
-                    else None,
+                    address=row.get("address"),
                 )
             )
 
         for row in vehicles:
             session.add(
-                Vehicle(
+                OnDemandVehicle(
                     vehicle_id=row["vehicle_id"],
                     depot_id=row["depot_id"],
                     capacity=int(row["capacity"]),

@@ -68,7 +68,9 @@ export function OperatorView({
   const [gtfsMode, setGtfsMode] = useState(false);
   const [gtfsUploading, setGtfsUploading] = useState(false);
   const [gtfsError, setGtfsError] = useState<string | null>(null);
+  const [demandUploading, setDemandUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const demandFileInputRef = useRef<HTMLInputElement | null>(null);
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [onDemandExpanded, setOnDemandExpanded] = useState(true);
   const [busExpanded, setBusExpanded] = useState(true);
@@ -125,6 +127,18 @@ export function OperatorView({
         fileInputRef.current.value = '';
       }
     }
+  };
+
+  const handleDemandFileSelected = (file: File | null) => {
+    if (!file) return;
+    setDemandUploading(true);
+    console.log('[operator] demand upload placeholder:', file.name);
+    window.setTimeout(() => {
+      setDemandUploading(false);
+      if (demandFileInputRef.current) {
+        demandFileInputRef.current.value = '';
+      }
+    }, 1200);
   };
 
   const addBusRoute = () => {
@@ -198,6 +212,13 @@ export function OperatorView({
 
   return (
     <div className={`${isCollapsed ? 'w-16' : 'w-96'} h-full bg-white border-r transition-all duration-300 relative flex flex-col`}>
+      {demandUploading && (
+        <div className="absolute inset-0 z-20 flex items-center justify-center bg-white/80 backdrop-blur-sm">
+          <div className="rounded-lg border bg-white px-6 py-4 text-sm font-medium text-gray-700 shadow-lg">
+            Uploading demand data...
+          </div>
+        </div>
+      )}
       {/* Collapse Button */}
       <div className={`flex items-center ${isCollapsed ? 'justify-center py-4' : 'justify-between p-4'} border-b`}>
         {!isCollapsed && <h2 className="text-lg font-semibold truncate">Operator Config</h2>}
@@ -259,6 +280,22 @@ export function OperatorView({
                     onChange={(e) => onDemandSampleChange(parseInt(e.target.value) || 0)}
                     className="w-full"
                   />
+                </div>
+                <div>
+                  <input
+                    ref={demandFileInputRef}
+                    type="file"
+                    className="hidden"
+                    onChange={(e) => handleDemandFileSelected(e.target.files?.[0] ?? null)}
+                  />
+                  <button
+                    onClick={() => demandFileInputRef.current?.click()}
+                    disabled={demandUploading}
+                    className="w-full flex items-center justify-center gap-2 px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-70"
+                  >
+                    <Upload size={16} />
+                    <span>{demandUploading ? 'Uploading...' : 'Upload Demand Data'}</span>
+                  </button>
                 </div>
               </div>
             </div>

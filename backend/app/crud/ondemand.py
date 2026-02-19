@@ -26,6 +26,9 @@ def load_vehicle_states(
     origin_lat: float,
     origin_lon: float,
 ) -> list[ondemand_service.VehicleState]:
+    schedules_exist = (
+        session.execute(select(VehicleSchedule.id).limit(1)).scalars().first() is not None
+    )
     point = WKTElement(f"POINT({origin_lon} {origin_lat})", srid=4326)
     # A depot is eligible when it has no service zone rows at all (open/unzoned),
     # or when the origin point falls within any of its hex boundaries.
@@ -47,18 +50,21 @@ def load_vehicle_states(
 
     vehicles: list[ondemand_service.VehicleState] = []
     for vehicle in rows:
-        schedules = (
-            session.execute(
-                select(VehicleSchedule).where(VehicleSchedule.vehicle_id == vehicle.vehicle_id)
+        if schedules_exist:
+            schedules = (
+                session.execute(
+                    select(VehicleSchedule).where(
+                        VehicleSchedule.vehicle_id == vehicle.vehicle_id
+                    )
+                )
+                .scalars()
+                .all()
             )
-            .scalars()
-            .all()
-        )
-        if not schedules:
-            continue
-        schedule = schedules[0]
-        if _parse_time(schedule.start_time) >= _parse_time(schedule.end_time):
-            continue
+            if not schedules:
+                continue
+            schedule = schedules[0]
+            if _parse_time(schedule.start_time) >= _parse_time(schedule.end_time):
+                continue
 
         route = _load_active_route(session, vehicle.vehicle_id)
         vehicles.append(
@@ -309,6 +315,16 @@ def create_depot(
         v = OnDemandVehicle(vehicle_id=vehicle_id, depot_id=depot_id, capacity=capacity)
         session.add(v)
         new_vehicles.append(v)
+
+    for vehicle in new_vehicles:
+        session.add(
+            VehicleSchedule(
+                vehicle_id=vehicle.vehicle_id,
+                service_days="mon,tue,wed,thu,fri,sat,sun",
+                start_time="05:00",
+                end_time="20:00",
+            )
+        )
 
     session.commit()
     session.refresh(depot)
