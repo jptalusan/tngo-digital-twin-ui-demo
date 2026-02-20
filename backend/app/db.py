@@ -21,6 +21,7 @@ def init_db(drop: bool = False) -> None:
     if settings.database_url.startswith("postgresql"):
         with engine.connect() as conn:
             conn.execute(text("CREATE EXTENSION IF NOT EXISTS postgis"))
+            conn.execute(text("CREATE EXTENSION IF NOT EXISTS unaccent"))
             conn.commit()
 
     if drop:

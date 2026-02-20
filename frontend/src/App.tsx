@@ -2,6 +2,7 @@ import { useState, useCallback, useMemo, useEffect } from 'react';
 import { MapView, Marker, RoutePolyline, MapLayer } from './components/MapView';
 import { PassengerView } from './components/PassengerView';
 import { OperatorView, Depot, BusRoute } from './components/OperatorView';
+import { MoveODPage } from './components/MoveODPage';
 import { EvaluationDrawer } from './components/EvaluationDrawer';
 import { ItineraryDrawer } from './components/ItineraryDrawer';
 import { MapLegend, LegendItem } from './components/MapLegend';
@@ -11,11 +12,11 @@ import { buildUrl } from './services/http';
 import { ResponsiveContainer, LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip } from 'recharts';
 import * as h3 from 'h3-js';
 
-type ViewMode = 'passenger' | 'operator';
+type ViewMode = 'passenger' | 'operator' | 'moveod';
 type DepotWizardStep = 'pick-location' | 'select-zone' | 'vehicles';
 
 export default function App() {
-  const [viewMode, setViewMode] = useState<ViewMode>('passenger');
+  const [viewMode, setViewMode] = useState<ViewMode>('moveod');
   const [origin, setOrigin] = useState<AutocompleteResult | null>(null);
   const [destination, setDestination] = useState<AutocompleteResult | null>(null);
   const [routes, setRoutes] = useState<Route[]>([]);
@@ -999,164 +1000,178 @@ export default function App() {
           >
             Operator View
           </button>
+          <button
+            onClick={() => handleViewModeChange('moveod')}
+            className={`px-6 py-2 rounded-lg font-medium transition-colors ${
+              viewMode === 'moveod'
+                ? 'bg-blue-600 text-white'
+                : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+            }`}
+          >
+            MoveOD
+          </button>
         </div>
       </div>
 
       {/* Main Content */}
       <div className="flex-1 flex min-h-0 overflow-hidden relative">
-        {/* Sidebar */}
-        {viewMode === 'passenger' ? (
-          <PassengerView
-            origin={origin}
-            destination={destination}
-            onOriginChange={setOrigin}
-            onDestinationChange={setDestination}
-            onNavigate={handleNavigate}
-            routes={routes}
-            loading={loading}
-            onRouteClick={handleRouteClick}
-            onSegmentClick={handleSegmentClick}
-            onReset={handleResetPassenger}
-          />
+        {viewMode === 'moveod' ? (
+          <MoveODPage baseMapStyle={baseMapStyle} />
         ) : (
-          <OperatorView
-            onRemoveDepot={handleRemoveDepot}
-            depots={depots}
-            onBusRouteUpdate={handleBusRouteUpdate}
-            onEvaluate={handleEvaluate}
-            onReset={handleResetOperator}
-            onStartDepotWizard={startDepotWizard}
-            depotWizardActive={depotWizardOpen}
-            onGtfsUploaded={handleGtfsUploaded}
-            showDepotHexes={showDepotHexes}
-            onToggleDepotHexes={setShowDepotHexes}
-            demandModels={demandModels}
-            selectedDemandModelId={selectedDemandModelId}
-            demandSamplePercent={demandSamplePercent}
-            onDemandModelChange={setSelectedDemandModelId}
-            onDemandSampleChange={setDemandSamplePercent}
-            evaluating={evaluating}
-          />
-        )}
-
-        {/* Map + Itinerary Panel */}
-        {viewMode === 'passenger' ? (
-          <div className="flex flex-1 min-h-0 min-w-0">
-            <div className="relative flex-1 min-h-0 min-w-0">
-              <MapView
-                markers={markers}
-                routes={routePolylines}
-                onMapClick={handleMapClick}
-                onMapRightClick={handleMapRightClick}
-                highlightedSegment={highlightedSegment}
-                layers={mapLayers}
-                baseMapStyle={baseMapStyle}
-                showHexGrid={viewMode === 'operator' && depotWizardOpen && depotWizardStep === 'select-zone'}
-                selectedHexes={draftDepotHexes}
-                onHexClick={depotWizardOpen && depotWizardStep === 'select-zone' ? toggleDepotHex : undefined}
+          <>
+            {/* Sidebar */}
+            {viewMode === 'passenger' ? (
+              <PassengerView
+                origin={origin}
+                destination={destination}
+                onOriginChange={setOrigin}
+                onDestinationChange={setDestination}
+                onNavigate={handleNavigate}
+                routes={routes}
+                loading={loading}
+                onRouteClick={handleRouteClick}
+                onSegmentClick={handleSegmentClick}
+                onReset={handleResetPassenger}
               />
-              {mapLoading && <MapLoadingOverlay />}
-            </div>
-            {(itineraryDrawerOpen || itineraries.length > 0) && (
-              <div
-                className="h-full shrink-0 border-l bg-white shadow-xl"
-                style={{ width: '30vw', maxWidth: '30vw', minWidth: '30vw' }}
-              >
-                <ItineraryDrawer
-                  open
-                  onOpenChange={setItineraryDrawerOpen}
-                  itineraries={itineraries}
-                  bestItineraryId={itineraryBestId}
-                  selectedItineraryId={selectedItineraryId}
-                  onSelectItinerary={(itinerary) => {
-                    setSelectedItineraryId(itinerary?.itinerary_id ?? null);
-                  }}
-                  onSelectLeg={(leg) => {
-                    if (typeof (leg as any)?.geometry === 'string' && (leg as any).geometry.length > 0) {
-                      setHighlightedSegment(decodePolyline((leg as any).geometry));
-                    } else {
-                      setHighlightedSegment(undefined);
-                    }
-                  }}
-                  modeLabel={itineraryMode}
-                />
-              </div>
+            ) : (
+              <OperatorView
+                onRemoveDepot={handleRemoveDepot}
+                depots={depots}
+                onBusRouteUpdate={handleBusRouteUpdate}
+                onEvaluate={handleEvaluate}
+                onReset={handleResetOperator}
+                onStartDepotWizard={startDepotWizard}
+                depotWizardActive={depotWizardOpen}
+                onGtfsUploaded={handleGtfsUploaded}
+                showDepotHexes={showDepotHexes}
+                onToggleDepotHexes={setShowDepotHexes}
+                demandModels={demandModels}
+                selectedDemandModelId={selectedDemandModelId}
+                demandSamplePercent={demandSamplePercent}
+                onDemandModelChange={setSelectedDemandModelId}
+                onDemandSampleChange={setDemandSamplePercent}
+                evaluating={evaluating}
+              />
             )}
-          </div>
-        ) : (
-          <div className="flex flex-1 min-h-0 min-w-0">
-            <div className="relative flex-1 min-h-0 min-w-0 flex flex-col">
-              <div className="relative flex-1 min-h-0 min-w-0">
-                <MapView
-                  markers={markers}
-                  routes={routePolylines}
-                  onMapClick={handleMapClick}
-                  onMapRightClick={handleMapRightClick}
-                  highlightedSegment={highlightedSegment}
-                  layers={mapLayers}
-                  baseMapStyle={baseMapStyle}
-                  showHexGrid={viewMode === 'operator' && (depotWizardOpen || depots.length > 0)}
-                  hexDisplayMode={
-                    depotWizardOpen && depotWizardStep === 'select-zone'
-                      ? 'grid'
-                      : showDepotHexes
-                      ? 'grid'
-                      : 'established-only'
-                  }
-                  selectedHexes={depotWizardOpen ? draftDepotHexes : []}
-                  establishedHexes={depotHexes}
-                  activeHexes={activeDepotHexes}
-                  allowMapPan={!(depotWizardOpen && depotWizardStep === 'select-zone')}
-                />
-                {mapLoading && <MapLoadingOverlay />}
-                <div className="absolute inset-0 z-30 pointer-events-none">
-                {/* Map Legend */}
-                {viewMode === 'operator' && (
-                  <div className="pointer-events-auto">
-                    {evaluationResult && (
-                      <MapLegend items={legendItems} onToggle={handleLegendToggle} />
-                    )}
-                    <div className="absolute top-4 right-4 w-48 rounded-lg border border-slate-200 bg-white/95 p-3 shadow-lg">
-                      <div className="text-xs font-semibold text-slate-700 mb-2">Map Legend</div>
-                      <div className="space-y-2 text-xs text-slate-600">
-                        <div className="flex items-center gap-2">
-                          <span className="inline-block h-2 w-2 rounded-full bg-blue-400" />
-                          <span>Demand Home</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className="inline-block h-2 w-2 rounded-full bg-red-300" />
-                          <span>Demand Work</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className="inline-block h-2 w-2 rounded-full bg-amber-400" />
-                          <span>GTFS Stops</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className="inline-block h-1.5 w-6 rounded-full bg-amber-500" />
-                          <span>GTFS Routes</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className="inline-block h-2 w-2 rounded-sm bg-blue-600" />
-                          <span>Depot</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
 
-                {/* Evaluation Drawer */}
-                {viewMode === 'operator' && (
-                  <div className="pointer-events-auto">
-                    <EvaluationDrawer
-                      isOpen={showEvaluationDrawer}
-                      onClose={() => setShowEvaluationDrawer(false)}
-                      metrics={evaluationResult?.metrics || null}
+            {/* Map + Itinerary Panel */}
+            {viewMode === 'passenger' ? (
+              <div className="flex flex-1 min-h-0 min-w-0">
+                <div className="relative flex-1 min-h-0 min-w-0">
+                  <MapView
+                    markers={markers}
+                    routes={routePolylines}
+                    onMapClick={handleMapClick}
+                    onMapRightClick={handleMapRightClick}
+                    highlightedSegment={highlightedSegment}
+                    layers={mapLayers}
+                    baseMapStyle={baseMapStyle}
+                    showHexGrid={viewMode === 'operator' && depotWizardOpen && depotWizardStep === 'select-zone'}
+                    selectedHexes={draftDepotHexes}
+                    onHexClick={depotWizardOpen && depotWizardStep === 'select-zone' ? toggleDepotHex : undefined}
+                  />
+                  {mapLoading && <MapLoadingOverlay />}
+                </div>
+                {(itineraryDrawerOpen || itineraries.length > 0) && (
+                  <div
+                    className="h-full shrink-0 border-l bg-white shadow-xl"
+                    style={{ width: '30vw', maxWidth: '30vw', minWidth: '30vw' }}
+                  >
+                    <ItineraryDrawer
+                      open
+                      onOpenChange={setItineraryDrawerOpen}
+                      itineraries={itineraries}
+                      bestItineraryId={itineraryBestId}
+                      selectedItineraryId={selectedItineraryId}
+                      onSelectItinerary={(itinerary) => {
+                        setSelectedItineraryId(itinerary?.itinerary_id ?? null);
+                      }}
+                      onSelectLeg={(leg) => {
+                        if (typeof (leg as any)?.geometry === 'string' && (leg as any).geometry.length > 0) {
+                          setHighlightedSegment(decodePolyline((leg as any).geometry));
+                        } else {
+                          setHighlightedSegment(undefined);
+                        }
+                      }}
+                      modeLabel={itineraryMode}
                     />
                   </div>
                 )}
-                </div>
               </div>
-              {depotWizardOpen && (
+            ) : (
+              <div className="flex flex-1 min-h-0 min-w-0">
+                <div className="relative flex-1 min-h-0 min-w-0 flex flex-col">
+                  <div className="relative flex-1 min-h-0 min-w-0">
+                    <MapView
+                      markers={markers}
+                      routes={routePolylines}
+                      onMapClick={handleMapClick}
+                      onMapRightClick={handleMapRightClick}
+                      highlightedSegment={highlightedSegment}
+                      layers={mapLayers}
+                      baseMapStyle={baseMapStyle}
+                      showHexGrid={viewMode === 'operator' && (depotWizardOpen || depots.length > 0)}
+                      hexDisplayMode={
+                        depotWizardOpen && depotWizardStep === 'select-zone'
+                          ? 'grid'
+                          : showDepotHexes
+                          ? 'grid'
+                          : 'established-only'
+                      }
+                      selectedHexes={depotWizardOpen ? draftDepotHexes : []}
+                      establishedHexes={depotHexes}
+                      activeHexes={activeDepotHexes}
+                      allowMapPan={!(depotWizardOpen && depotWizardStep === 'select-zone')}
+                    />
+                    {mapLoading && <MapLoadingOverlay />}
+                    <div className="absolute inset-0 z-30 pointer-events-none">
+                    {/* Map Legend */}
+                    {viewMode === 'operator' && (
+                      <div className="pointer-events-auto">
+                        {evaluationResult && (
+                          <MapLegend items={legendItems} onToggle={handleLegendToggle} />
+                        )}
+                        <div className="absolute top-4 right-4 w-48 rounded-lg border border-slate-200 bg-white/95 p-3 shadow-lg">
+                          <div className="text-xs font-semibold text-slate-700 mb-2">Map Legend</div>
+                          <div className="space-y-2 text-xs text-slate-600">
+                            <div className="flex items-center gap-2">
+                              <span className="inline-block h-2 w-2 rounded-full bg-blue-400" />
+                              <span>Demand Home</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className="inline-block h-2 w-2 rounded-full bg-red-300" />
+                              <span>Demand Work</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className="inline-block h-2 w-2 rounded-full bg-amber-400" />
+                              <span>GTFS Stops</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className="inline-block h-1.5 w-6 rounded-full bg-amber-500" />
+                              <span>GTFS Routes</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className="inline-block h-2 w-2 rounded-sm bg-blue-600" />
+                              <span>Depot</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Evaluation Drawer */}
+                    {viewMode === 'operator' && (
+                      <div className="pointer-events-auto">
+                        <EvaluationDrawer
+                          isOpen={showEvaluationDrawer}
+                          onClose={() => setShowEvaluationDrawer(false)}
+                          metrics={evaluationResult?.metrics || null}
+                        />
+                      </div>
+                    )}
+                    </div>
+                  </div>
+                  {depotWizardOpen && (
                 <div className="shrink-0 border-t border-slate-200 bg-white shadow-[0_-10px_30px_rgba(0,0,0,0.08)]">
                   <div className="mx-auto w-full max-w-[900px]">
                     <div className="border-b px-4 py-3">
@@ -1452,7 +1467,9 @@ export default function App() {
                 </div>
               </div>
             )}
-          </div>
+            </div>
+          )}
+        </>
         )}
       </div>
 

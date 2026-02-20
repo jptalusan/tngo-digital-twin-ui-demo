@@ -22,6 +22,7 @@ from app.models.ondemand import (
     VehicleRoute,
     VehicleRouteStop,
 )
+from app.models.moveod import StateFips, CountyGeo, StateGeo, CountyFips, SyntheticDemand
 from app.models.user_demand import UserDemand
 
 __all__ = [
@@ -46,4 +47,9 @@ __all__ = [
     "VehicleRoute",
     "VehicleRouteStop",
     "UserDemand",
+    "StateFips",
+    "CountyGeo",
+    "StateGeo",
+    "CountyFips",
+    "SyntheticDemand",
 ]

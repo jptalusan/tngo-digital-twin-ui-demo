@@ -422,6 +422,25 @@ const DemandSummary = z
 const DemandListResponse = z
   .object({ demands: z.array(DemandSummary) })
   .passthrough();
+const DemandPreviewPoint = z
+  .object({
+    home_lat: z.number(),
+    home_lon: z.number(),
+    work_lat: z.number(),
+    work_lon: z.number(),
+    shift: z.number().int(),
+    shift_start: z.string(),
+    shift_end: z.string(),
+  })
+  .passthrough();
+const DemandPreviewResponse = z
+  .object({
+    demand_name: z.string(),
+    total_count: z.number().int(),
+    sampled_count: z.number().int(),
+    points: z.array(DemandPreviewPoint),
+  })
+  .passthrough();
 const Body_upload_gtfs_api_gtfs_upload_post = z
   .object({ gtfs_name: z.string(), file: z.instanceof(File) })
   .passthrough();
@@ -475,6 +494,22 @@ const GtfsPreviewResponse = z
     shape_points: z.array(GtfsPreviewShapePoint),
   })
   .passthrough();
+const SearchListResponse = z
+  .object({ items: z.array(z.unknown()), message: z.string() })
+  .passthrough();
+const state_fips = z.union([z.string(), z.null()]).optional();
+const CountyFeatureResponse = z
+  .object({
+    item: z.union([z.object({}).partial().passthrough(), z.null()]),
+    message: z.string(),
+  })
+  .passthrough();
+const StateFeatureCollectionResponse = z
+  .object({
+    items: z.array(z.object({}).partial().passthrough()),
+    message: z.string(),
+  })
+  .passthrough();
 
 export const schemas = {
   AutocompleteResult,
@@ -525,6 +560,8 @@ export const schemas = {
   NearestStop,
   DemandSummary,
   DemandListResponse,
+  DemandPreviewPoint,
+  DemandPreviewResponse,
   Body_upload_gtfs_api_gtfs_upload_post,
   GtfsUploadResponse,
   GtfsJobStatus,
@@ -533,6 +570,10 @@ export const schemas = {
   GtfsPreviewStop,
   GtfsPreviewShapePoint,
   GtfsPreviewResponse,
+  SearchListResponse,
+  state_fips,
+  CountyFeatureResponse,
+  StateFeatureCollectionResponse,
 };
 
 const endpoints = makeApi([
@@ -582,11 +623,105 @@ const endpoints = makeApi([
   },
   {
     method: "get",
+    path: "/api/counties/geometry",
+    alias: "get_county_geometry_api_counties_geometry_get",
+    requestFormat: "json",
+    parameters: [
+      {
+        name: "geoid",
+        type: "Query",
+        schema: state_fips,
+      },
+      {
+        name: "state_fips",
+        type: "Query",
+        schema: state_fips,
+      },
+      {
+        name: "name",
+        type: "Query",
+        schema: state_fips,
+      },
+    ],
+    response: CountyFeatureResponse,
+    errors: [
+      {
+        status: 422,
+        description: `Validation Error`,
+        schema: HTTPValidationError,
+      },
+    ],
+  },
+  {
+    method: "get",
+    path: "/api/counties/search",
+    alias: "search_counties_api_counties_search_get",
+    requestFormat: "json",
+    parameters: [
+      {
+        name: "q",
+        type: "Query",
+        schema: z.string(),
+      },
+      {
+        name: "state_fips",
+        type: "Query",
+        schema: state_fips,
+      },
+      {
+        name: "state_name",
+        type: "Query",
+        schema: state_fips,
+      },
+      {
+        name: "limit",
+        type: "Query",
+        schema: z.number().int().gte(1).lte(20).optional().default(20),
+      },
+    ],
+    response: SearchListResponse,
+    errors: [
+      {
+        status: 422,
+        description: `Validation Error`,
+        schema: HTTPValidationError,
+      },
+    ],
+  },
+  {
+    method: "get",
     path: "/api/demand-list",
     alias: "demand_list_api_demand_list_get",
     description: `Returns each distinct demand_name with the number of user rows loaded for that scenario.`,
     requestFormat: "json",
     response: DemandListResponse,
+  },
+  {
+    method: "get",
+    path: "/api/demand/:demand_name/preview",
+    alias: "demand_preview_api_demand__demand_name__preview_get",
+    description: `Return a random sample of demand points for the given scenario. &#x60;sample&#x60; is a fraction from 0.0 to 1.0 controlling what proportion of rows are returned.`,
+    requestFormat: "json",
+    parameters: [
+      {
+        name: "demand_name",
+        type: "Path",
+        schema: z.string(),
+      },
+      {
+        name: "sample",
+        type: "Query",
+        schema: z.number().gte(0).lte(1).optional().default(0.1),
+      },
+    ],
+    response: DemandPreviewResponse,
+    errors: [
+      {
+        status: 422,
+        description: `Validation Error`,
+        schema: HTTPValidationError,
+      },
+    ],
   },
   {
     method: "post",
@@ -696,6 +831,37 @@ const endpoints = makeApi([
     description: `Basic liveness check for the API service.`,
     requestFormat: "json",
     response: z.object({}).partial().passthrough(),
+  },
+  {
+    method: "get",
+    path: "/api/moveod/synthetic-demand",
+    alias: "get_synthetic_demand_api_moveod_synthetic_demand_get",
+    requestFormat: "json",
+    parameters: [
+      {
+        name: "state_fips",
+        type: "Query",
+        schema: z.string().min(2).max(2),
+      },
+      {
+        name: "county_fips",
+        type: "Query",
+        schema: z.string().min(3).max(3),
+      },
+      {
+        name: "limit",
+        type: "Query",
+        schema: z.number().int().gte(1).lte(5000).optional().default(500),
+      },
+    ],
+    response: SearchListResponse,
+    errors: [
+      {
+        status: 422,
+        description: `Validation Error`,
+        schema: HTTPValidationError,
+      },
+    ],
   },
   {
     method: "post",
@@ -947,6 +1113,70 @@ const endpoints = makeApi([
       },
     ],
     response: ReverseGeocodeResponse,
+    errors: [
+      {
+        status: 422,
+        description: `Validation Error`,
+        schema: HTTPValidationError,
+      },
+    ],
+  },
+  {
+    method: "get",
+    path: "/api/states/:state_fips/counties",
+    alias: "list_counties_api_states__state_fips__counties_get",
+    requestFormat: "json",
+    parameters: [
+      {
+        name: "state_fips",
+        type: "Path",
+        schema: z.string(),
+      },
+      {
+        name: "include_geometry",
+        type: "Query",
+        schema: z.boolean().optional().default(false),
+      },
+      {
+        name: "order",
+        type: "Query",
+        schema: z.string().optional().default("name"),
+      },
+    ],
+    response: SearchListResponse,
+    errors: [
+      {
+        status: 422,
+        description: `Validation Error`,
+        schema: HTTPValidationError,
+      },
+    ],
+  },
+  {
+    method: "get",
+    path: "/api/states/geometry",
+    alias: "list_state_geometries_api_states_geometry_get",
+    requestFormat: "json",
+    response: StateFeatureCollectionResponse,
+  },
+  {
+    method: "get",
+    path: "/api/states/search",
+    alias: "search_states_api_states_search_get",
+    requestFormat: "json",
+    parameters: [
+      {
+        name: "q",
+        type: "Query",
+        schema: z.string(),
+      },
+      {
+        name: "limit",
+        type: "Query",
+        schema: z.number().int().gte(1).lte(20).optional().default(20),
+      },
+    ],
+    response: SearchListResponse,
     errors: [
       {
         status: 422,
