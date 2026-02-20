@@ -15,7 +15,7 @@ import { apiService, AutocompleteResult, Route, EvaluationResponse } from './ser
 import { buildUrl } from './services/http';
 import { ResponsiveContainer, LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip } from 'recharts';
 import * as h3 from 'h3-js';
-import { Moon, Sun } from 'lucide-react';
+import { Moon, Sun, X } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { useAnalysisJobs } from './state/analysisJobs';
 import type { AnalysisJob } from './state/analysisJobs';
@@ -44,6 +44,7 @@ export default function App() {
   const [legendItems, setLegendItems] = useState<LegendItem[]>([]);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; coordinates: [number, number] } | null>(null);
   const [itineraryDrawerOpen, setItineraryDrawerOpen] = useState(true);
+  const [operatorSidebarOpen, setOperatorSidebarOpen] = useState(true);
   const [itineraryBestId, setItineraryBestId] = useState<string | null>(null);
   const [itineraries, setItineraries] = useState<any[]>([]);
   const [itineraryMode, setItineraryMode] = useState<string>('');
@@ -66,17 +67,28 @@ export default function App() {
     [setMoveodAnalysisSelection, setViewMode]
   );
 
+  const formatElapsed = useCallback((ms: number) => {
+    if (!Number.isFinite(ms) || ms < 0) return '0s';
+    const totalSeconds = Math.round(ms / 1000);
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    if (minutes <= 0) return `${seconds}s`;
+    return `${minutes}m ${seconds}s`;
+  }, []);
+
   useEffect(() => {
     jobs.forEach((job) => {
       const prevStatus = jobStatusRef.current.get(job.jobId);
       if ((job.status === 'done' || job.status === 'error') && prevStatus !== job.status) {
         if (viewMode !== 'moveod-analysis') {
           const title = job.status === 'done' ? 'Analysis done' : 'Analysis failed';
+          const elapsed = formatElapsed(job.updatedAt - job.createdAt);
           const description =
             job.message ??
             (job.status === 'done' ? 'View results?' : 'Open analysis to review details.');
+          const finalDescription = `${description} · ${elapsed}`;
           toast(title, {
-            description,
+            description: finalDescription,
             action: {
               label: 'View',
               onClick: () => handleJobNavigate(job)
@@ -86,7 +98,7 @@ export default function App() {
       }
     });
     jobStatusRef.current = new Map(jobs.map((job) => [job.jobId, job.status]));
-  }, [jobs, viewMode, handleJobNavigate]);
+  }, [jobs, viewMode, handleJobNavigate, formatElapsed]);
   const [depotWizardOpen, setDepotWizardOpen] = useState(false);
   const [depotWizardStep, setDepotWizardStep] = useState<DepotWizardStep>('pick-location');
   const [draftDepotLocation, setDraftDepotLocation] = useState<{ coords: [number, number]; address?: string } | null>(null);
@@ -97,7 +109,6 @@ export default function App() {
   const [depotZoneError, setDepotZoneError] = useState<string | null>(null);
   const [selectedDepotIds, setSelectedDepotIds] = useState<string[]>([]);
   const [wizardPinnedHex, setWizardPinnedHex] = useState<string | null>(null);
-  const [showDepotHexes, setShowDepotHexes] = useState(false);
   const [demandModels, setDemandModels] = useState<Array<{ id: string; label: string }>>([]);
   const [selectedDemandModelId, setSelectedDemandModelId] = useState<string>('');
   const [demandSamplePercent, setDemandSamplePercent] = useState(20);
@@ -249,7 +260,6 @@ export default function App() {
     setDraftDepotCapacity(defaults.capacity);
     setDepotZoneError(null);
     setWizardPinnedHex(null);
-    setShowDepotHexes(true);
   }, []);
 
   const closeDepotWizard = useCallback(() => {
@@ -290,6 +300,33 @@ export default function App() {
     }
     return visited.size === set.size;
   }, [getHexNeighbors]);
+
+  const handleDepotWizardNext = useCallback(() => {
+    if (depotWizardStep === 'pick-location') {
+      setDepotWizardStep('select-zone');
+      return;
+    }
+    if (depotWizardStep === 'select-zone') {
+      if (draftDepotHexes.length === 0) {
+        setDepotZoneError('Select at least one hexagon.');
+        return;
+      }
+      if (!isHexSelectionContiguous(draftDepotHexes)) {
+        setDepotZoneError('Selection must be contiguous (touching sides only).');
+        return;
+      }
+      setDepotZoneError(null);
+      setDepotWizardStep('vehicles');
+    }
+  }, [depotWizardStep, draftDepotHexes, isHexSelectionContiguous]);
+
+  const handleDepotWizardBack = useCallback(() => {
+    if (depotWizardStep === 'vehicles') {
+      setDepotWizardStep('select-zone');
+      return;
+    }
+    setDepotWizardStep('pick-location');
+  }, [depotWizardStep]);
 
   const toggleDepotHex = useCallback((hexId: string) => {
     setDraftDepotHexes((prev) => {
@@ -920,7 +957,6 @@ export default function App() {
       setDepots((prev) => [...prev, depot]);
       setSelectedDepotIds((prev) => [...prev, depot.id]);
       closeDepotWizard();
-      setShowDepotHexes(false);
     } catch (error) {
       console.error('[api] createDepot error:', error);
     }
@@ -982,6 +1018,10 @@ export default function App() {
     setRoutes([]);
     setSelectedRouteIndex(0);
     setHighlightedSegment(undefined);
+    setItineraries([]);
+    setItineraryBestId(null);
+    setSelectedItineraryId(null);
+    setItineraryMode('');
   };
 
   const handleResetOperator = () => {
@@ -1077,9 +1117,22 @@ export default function App() {
                 onReset={handleResetOperator}
                 onStartDepotWizard={startDepotWizard}
                 depotWizardActive={depotWizardOpen}
+                depotWizardStep={depotWizardStep}
+                draftDepotLocation={draftDepotLocation}
+                draftDepotHexes={draftDepotHexes}
+                draftDepotVehicles={draftDepotVehicles}
+                draftDepotCapacity={draftDepotCapacity}
+                depotGeocoding={depotGeocoding}
+                depotZoneError={depotZoneError}
+                onDepotWizardCancel={closeDepotWizard}
+                onDepotWizardBack={handleDepotWizardBack}
+                onDepotWizardNext={handleDepotWizardNext}
+                onDepotWizardSave={handleSaveDepot}
+                onDraftDepotVehiclesChange={setDraftDepotVehicles}
+                onDraftDepotCapacityChange={setDraftDepotCapacity}
+                defaultDepotVehicles={draftDepotVehicles}
+                defaultDepotCapacity={draftDepotCapacity}
                 onGtfsUploaded={handleGtfsUploaded}
-                showDepotHexes={showDepotHexes}
-                onToggleDepotHexes={setShowDepotHexes}
                 demandModels={demandModels}
                 selectedDemandModelId={selectedDemandModelId}
                 demandSamplePercent={demandSamplePercent}
@@ -1147,7 +1200,7 @@ export default function App() {
                 </div>
               </div>
             ) : (
-              <div className="flex flex-1 min-h-0 min-w-0 p-4">
+              <div className="flex flex-1 min-h-0 min-w-0 gap-4 p-4">
                 <div className="flex-1 min-h-0 min-w-0 flex flex-col gap-4">
                   <div className="map-panel">
                     <MapView
@@ -1158,14 +1211,8 @@ export default function App() {
                       highlightedSegment={highlightedSegment}
                       layers={mapLayers}
                       baseMapStyle={baseMapStyle}
-                      showHexGrid={viewMode === 'operator' && (depotWizardOpen || depots.length > 0)}
-                      hexDisplayMode={
-                        depotWizardOpen && depotWizardStep === 'select-zone'
-                          ? 'grid'
-                          : showDepotHexes
-                          ? 'grid'
-                          : 'established-only'
-                      }
+                      showHexGrid={viewMode === 'operator'}
+                      hexDisplayMode="grid"
                       selectedHexes={depotWizardOpen ? draftDepotHexes : []}
                       establishedHexes={depotHexes}
                       activeHexes={activeDepotHexes}
@@ -1219,153 +1266,32 @@ export default function App() {
                     )}
                     </div>
                   </div>
-                  {depotWizardOpen && (
-                <div className="shrink-0 panel">
-                  <div className="mx-auto w-full max-w-[900px]">
-                    <div className="border-b border-default px-4 py-3">
-                      <div className="text-sm font-semibold">Add Depot</div>
-                      <div className="text-xs text-muted">
-                        {depotWizardStep === 'pick-location' && 'Step 1 of 3: Pick location'}
-                        {depotWizardStep === 'select-zone' && 'Step 2 of 3: Select service zone'}
-                        {depotWizardStep === 'vehicles' && 'Step 3 of 3: Vehicles & capacity'}
-                      </div>
-                    </div>
-
-                    {depotWizardStep === 'pick-location' && (
-                      <div className="px-4 py-4 space-y-3">
-                        <div className="text-sm text-strong">
-                          Pick a spot on the map to place the depot.
-                        </div>
-                        <div className="control-row text-xs">
-                          {draftDepotLocation
-                            ? `${draftDepotLocation.address ?? formatCoordinates(draftDepotLocation.coords)}`
-                            : 'No location selected yet.'}
-                          {depotGeocoding && <span className="ml-2 text-muted">Looking up address...</span>}
-                        </div>
-                      </div>
-                    )}
-
-                    {depotWizardStep === 'select-zone' && (
-                      <div className="px-4 py-4 space-y-3">
-                        <div className="text-sm text-strong">
-                          Select contiguous hexagons for the service zone.
-                        </div>
-                        <div className="text-xs text-muted">
-                          Selected hexes: <span className="font-semibold text-strong">{draftDepotHexes.length}</span>
-                        </div>
-                        {depotZoneError && (
-                          <div className="text-xs text-red-600">{depotZoneError}</div>
-                        )}
-                      </div>
-                    )}
-
-                    {depotWizardStep === 'vehicles' && (
-                      <div className="px-4 py-4 space-y-4">
-                        <div className="text-sm text-strong">
-                          Set a homogeneous fleet size and capacity for this depot.
-                        </div>
-                        <div className="space-y-3">
-                          <div>
-                            <label className="block text-xs text-muted mb-1">Vehicles</label>
-                            <input
-                              type="number"
-                              min={1}
-                              value={draftDepotVehicles}
-                              onChange={(e) => setDraftDepotVehicles(parseInt(e.target.value) || 0)}
-                              className="control-input"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-xs text-muted mb-1">Vehicle Capacity</label>
-                            <input
-                              type="number"
-                              min={1}
-                              value={draftDepotCapacity}
-                              onChange={(e) => setDraftDepotCapacity(parseInt(e.target.value) || 0)}
-                              className="control-input"
-                            />
-                          </div>
-                        </div>
-                      </div>
-                    )}
-
-                    <div className="border-t border-default px-4 py-3 flex items-center justify-between">
-                      <button
-                        onClick={closeDepotWizard}
-                        className="btn btn-ghost"
-                      >
-                        Cancel
-                      </button>
-                      <div className="flex gap-2">
-                        {depotWizardStep !== 'pick-location' && (
-                          <button
-                            onClick={() => {
-                              if (depotWizardStep === 'select-zone') {
-                                setDepotWizardStep('pick-location');
-                              } else {
-                                setDepotWizardStep('select-zone');
-                              }
-                            }}
-                            className="btn btn-outline"
-                          >
-                            Back
-                          </button>
-                        )}
-                        {depotWizardStep === 'pick-location' && (
-                          <button
-                            onClick={() => setDepotWizardStep('select-zone')}
-                            disabled={!draftDepotLocation}
-                            className="btn btn-primary"
-                          >
-                            Next
-                          </button>
-                        )}
-                        {depotWizardStep === 'select-zone' && (
-                          <button
-                            onClick={() => {
-                              if (draftDepotHexes.length === 0) {
-                                setDepotZoneError('Select at least one hexagon.');
-                                return;
-                              }
-                              if (!isHexSelectionContiguous(draftDepotHexes)) {
-                                setDepotZoneError('Selection must be contiguous (touching sides only).');
-                                return;
-                              }
-                              setDepotZoneError(null);
-                              setDepotWizardStep('vehicles');
-                            }}
-                            className="btn btn-primary"
-                          >
-                            Done
-                          </button>
-                        )}
-                        {depotWizardStep === 'vehicles' && (
-                          <button
-                            onClick={handleSaveDepot}
-                            className="btn btn-primary"
-                          >
-                            Save Depot
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
             </div>
-            {(depots.length > 0 || gtfsUploads.length > 0 || showEvaluationPanel) && (
-              <div
-                className="h-full shrink-0 side-panel flex flex-col"
-                style={{
-                  width: '26vw',
-                  maxWidth: '26vw',
-                  minWidth: '26vw',
-                  paddingBottom: depotWizardOpen ? '220px' : undefined
-                }}
-              >
+            <div
+              className="h-full shrink-0 side-panel flex flex-col"
+              style={{
+                width: operatorSidebarOpen ? '26vw' : '48px',
+                maxWidth: operatorSidebarOpen ? '26vw' : '48px',
+                minWidth: operatorSidebarOpen ? '26vw' : '48px'
+              }}
+            >
+              {operatorSidebarOpen ? (
                 <div className="h-full flex flex-col overflow-y-auto">
-                  <div className="px-4 py-3 border-b border-default text-sm font-semibold">Depots</div>
+                  <div className="px-4 py-3 border-b border-default text-sm font-semibold flex items-center justify-between">
+                    <span>Depots</span>
+                    <button
+                      type="button"
+                      className="btn btn-ghost"
+                      onClick={() => setOperatorSidebarOpen(false)}
+                      title="Collapse panel"
+                    >
+                      <X size={16} />
+                    </button>
+                  </div>
                   <div className="p-4 space-y-3">
+                    {depots.length === 0 && (
+                      <div className="text-xs text-muted">No depots yet.</div>
+                    )}
                     {depots.map((depot, index) => (
                       <button
                         key={depot.id}
@@ -1386,17 +1312,9 @@ export default function App() {
                         <div className="text-xs text-muted mt-1">
                           {depot.address ?? formatCoordinates(depot.coordinates)}
                         </div>
-                        <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-muted">
-                          <div>
-                            <span className="font-medium text-strong">Vehicles:</span> {depot.vehicles}
-                          </div>
-                          <div>
-                            <span className="font-medium text-strong">Capacity:</span> {depot.capacity}
-                          </div>
-                          <div className="col-span-2">
-                            <span className="font-medium text-strong">Service Hexes:</span>{' '}
-                            {depot.serviceZoneHexes?.length ?? 0}
-                          </div>
+                        <div className="mt-2 text-xs text-muted">
+                          <span className="font-medium text-strong">Service Hexes:</span>{' '}
+                          {depot.serviceZoneHexes?.length ?? 0}
                         </div>
                       </button>
                     ))}
@@ -1501,14 +1419,18 @@ export default function App() {
                     </div>
                   </div>
                 )}
-                {depotWizardOpen && (
-                  <div className="border-t border-default px-4 py-3 text-xs text-muted">
-                    Wizard active — drawer pinned above.
-                  </div>
-                )}
                 </div>
-              </div>
-            )}
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setOperatorSidebarOpen(true)}
+                  className="h-full w-full btn btn-ghost"
+                  title="Expand panel"
+                >
+                  <span className="sidebar-collapsed-label">Details</span>
+                </button>
+              )}
+            </div>
             </div>
           )}
         </>

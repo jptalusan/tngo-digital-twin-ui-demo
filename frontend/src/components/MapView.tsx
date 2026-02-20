@@ -79,10 +79,11 @@ export function MapView({
   const markersLayerRef = useRef<L.LayerGroup | null>(null);
   const routesLayerRef = useRef<L.LayerGroup | null>(null);
   const highlightLayerRef = useRef<L.Polyline | null>(null);
-  const layersGroupRef = useRef<L.LayerGroup | null>(null);
   const hexLayerRef = useRef<L.LayerGroup | null>(null);
   const baseLayersRef = useRef<Record<string, L.TileLayer> | null>(null);
   const layerControlRef = useRef<L.Control.Layers | null>(null);
+  const overlayRegistryRef = useRef<Set<string>>(new Set());
+  const dynamicLayerGroupsRef = useRef<Map<string, L.LayerGroup>>(new Map());
   const markerRendererRef = useRef<L.Renderer | null>(null);
   const lastBoundsRef = useRef<string>('');
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
@@ -129,10 +130,18 @@ export function MapView({
     mapRef.current = map;
     markersLayerRef.current = L.layerGroup().addTo(map);
     routesLayerRef.current = L.layerGroup().addTo(map);
-    layersGroupRef.current = L.layerGroup().addTo(map);
-    hexLayerRef.current = L.layerGroup({ pane: 'hexes' }).addTo(map);
+    hexLayerRef.current = L.layerGroup({ pane: 'hexes' });
     markerRendererRef.current = L.canvas();
     markerRendererRef.current.addTo(map);
+
+    const addOverlay = (id: string, layer: L.Layer, label: string) => {
+      if (!layerControlRef.current || overlayRegistryRef.current.has(id)) return;
+      layerControlRef.current.addOverlay(layer, label);
+      overlayRegistryRef.current.add(id);
+    };
+
+    addOverlay('overlay:markers', markersLayerRef.current, 'Markers');
+    addOverlay('overlay:routes', routesLayerRef.current, 'Routes');
 
     if (typeof ResizeObserver !== 'undefined') {
       resizeObserverRef.current = new ResizeObserver(() => {
@@ -155,6 +164,19 @@ export function MapView({
     const map = mapRef.current;
     const hexLayer = hexLayerRef.current;
     if (!map || !hexLayer) return;
+
+    if (showHexGrid && layerControlRef.current && !overlayRegistryRef.current.has('overlay:hexes')) {
+      layerControlRef.current.addOverlay(hexLayer, 'Hex Grid');
+      overlayRegistryRef.current.add('overlay:hexes');
+    }
+
+    if (showHexGrid) {
+      if (!map.hasLayer(hexLayer)) {
+        hexLayer.addTo(map);
+      }
+    } else if (map.hasLayer(hexLayer)) {
+      map.removeLayer(hexLayer);
+    }
 
     const parseBounds = () => {
       const raw = (import.meta.env.VITE_DEMAND_HEX_BOUNDS as string | undefined) ?? '';
@@ -383,9 +405,15 @@ export function MapView({
       } else if (marker.type === 'destination') {
         markerIcon = L.divIcon({
           className: 'custom-marker',
-          html: '<div style="width: 0; height: 0; border-left: 10px solid transparent; border-right: 10px solid transparent; border-bottom: 20px solid #ef4444; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));"></div>',
-          iconSize: [20, 20],
-          iconAnchor: [10, 20]
+          html: `
+            <div style="position: relative; width: 22px; height: 24px;">
+              <div style="position: absolute; left: 3px; top: 2px; width: 2px; height: 20px; background: #1f2937;"></div>
+              <div style="position: absolute; left: 5px; top: 2px; width: 14px; height: 10px; background: #ef4444; clip-path: polygon(0 0, 100% 12%, 80% 50%, 100% 88%, 0 100%); box-shadow: 0 2px 4px rgba(0,0,0,0.3);"></div>
+              <div style="position: absolute; left: 1px; top: 20px; width: 6px; height: 2px; background: #1f2937; border-radius: 2px;"></div>
+            </div>
+          `,
+          iconSize: [22, 24],
+          iconAnchor: [5, 22]
         });
       } else {
         // depot
@@ -482,11 +510,51 @@ export function MapView({
 
   // Update evaluation layers
   useEffect(() => {
-    if (!layersGroupRef.current) return;
+    const map = mapRef.current;
+    if (!map || !layerControlRef.current) return;
 
-    layersGroupRef.current.clearLayers();
+    const formatLayerLabel = (id: string) =>
+      id
+        .replace(/[_-]+/g, ' ')
+        .replace(/\b\w/g, (char) => char.toUpperCase());
 
-    layers.forEach(layer => {
+    const addOverlay = (id: string, layer: L.Layer, label: string) => {
+      if (overlayRegistryRef.current.has(id)) return;
+      layerControlRef.current?.addOverlay(layer, label);
+      overlayRegistryRef.current.add(id);
+    };
+
+    const nextIds = new Set(layers.map((layer) => layer.id));
+    Array.from(dynamicLayerGroupsRef.current.entries()).forEach(([id, group]) => {
+      if (!nextIds.has(id)) {
+        group.clearLayers();
+        if (map.hasLayer(group)) {
+          map.removeLayer(group);
+        }
+        (layerControlRef.current as any)?.removeLayer?.(group);
+        overlayRegistryRef.current.delete(`overlay:layer:${id}`);
+        dynamicLayerGroupsRef.current.delete(id);
+      }
+    });
+
+    layers.forEach((layer) => {
+      let group = dynamicLayerGroupsRef.current.get(layer.id);
+      if (!group) {
+        group = L.layerGroup();
+        dynamicLayerGroupsRef.current.set(layer.id, group);
+        addOverlay(`overlay:layer:${layer.id}`, group, formatLayerLabel(layer.id));
+      }
+
+      if (layer.visible) {
+        if (!map.hasLayer(group)) {
+          group.addTo(map);
+        }
+      } else if (map.hasLayer(group)) {
+        map.removeLayer(group);
+      }
+
+      group.clearLayers();
+
       if (!layer.visible) return;
 
       if (layer.type === 'polygon' && layer.data) {
@@ -497,7 +565,7 @@ export function MapView({
             fillColor: '#10b981',
             fillOpacity: 0.2,
             weight: 2
-          }).addTo(layersGroupRef.current!);
+          }).addTo(group!);
         });
       } else if (layer.type === 'heatmap' && layer.data) {
         // Heatmap (using circle markers with varying opacity)
@@ -508,7 +576,7 @@ export function MapView({
             color: '#ef4444',
             weight: 0,
             fillOpacity: point.intensity * 0.6
-          }).addTo(layersGroupRef.current!);
+          }).addTo(group!);
         });
       } else if (layer.type === 'boundary' && layer.data) {
         // Service boundaries
@@ -519,7 +587,7 @@ export function MapView({
             fillOpacity: 0.15,
             weight: 2,
             dashArray: '5, 5'
-          }).addTo(layersGroupRef.current!);
+          }).addTo(group!);
         });
       }
     });

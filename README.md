@@ -46,7 +46,7 @@ Load GTFS:
 uv run python scripts/load_gtfs.py --path /path/to/gtfs.zip
 ```
 
-Load on-demand fleet:
+Load on-demand fleet: (optional)
 
 ```bash
 uv run python scripts/load_ondemand.py
@@ -57,6 +57,7 @@ MoveOD utilities:
 ```bash
 uv run python scripts/init_db.py --drop-analysis
 uv run python scripts/load_moveod.py
+# Optional (should be replaced by actual generation)
 uv run python scripts/load_moveod_demand.py
 ```
 

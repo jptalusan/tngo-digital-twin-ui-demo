@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import { Car, Bus, Plus, Trash2, Upload, PlayCircle, ChevronDown, ChevronUp, RotateCcw } from 'lucide-react';
+import { Plus, Trash2, Upload, PlayCircle, ChevronDown, ChevronUp, RotateCcw } from 'lucide-react';
 import { apiService } from '../services/api';
 import { buildUrl } from '../services/http';
 import { SidebarShell } from './SidebarShell';
@@ -32,9 +32,22 @@ interface OperatorViewProps {
   onReset: () => void;
   onStartDepotWizard: (defaults: { vehicles: number; capacity: number }) => void;
   depotWizardActive: boolean;
+  depotWizardStep: 'pick-location' | 'select-zone' | 'vehicles';
+  draftDepotLocation: { coords: [number, number]; address?: string } | null;
+  draftDepotHexes: string[];
+  draftDepotVehicles: number;
+  draftDepotCapacity: number;
+  depotGeocoding: boolean;
+  depotZoneError: string | null;
+  onDepotWizardCancel: () => void;
+  onDepotWizardBack: () => void;
+  onDepotWizardNext: () => void;
+  onDepotWizardSave: () => void;
+  onDraftDepotVehiclesChange: (value: number) => void;
+  onDraftDepotCapacityChange: (value: number) => void;
+  defaultDepotVehicles: number;
+  defaultDepotCapacity: number;
   onGtfsUploaded: (payload: { gtfs_id: string; gtfs_name: string; job_id: string; status: string }) => void;
-  showDepotHexes: boolean;
-  onToggleDepotHexes: (value: boolean) => void;
   demandModels: Array<{ id: string; label: string }>;
   selectedDemandModelId: string;
   demandSamplePercent: number;
@@ -51,9 +64,22 @@ export function OperatorView({
   onReset,
   onStartDepotWizard,
   depotWizardActive,
+  depotWizardStep,
+  draftDepotLocation,
+  draftDepotHexes,
+  draftDepotVehicles,
+  draftDepotCapacity,
+  depotGeocoding,
+  depotZoneError,
+  onDepotWizardCancel,
+  onDepotWizardBack,
+  onDepotWizardNext,
+  onDepotWizardSave,
+  onDraftDepotVehiclesChange,
+  onDraftDepotCapacityChange,
+  defaultDepotVehicles,
+  defaultDepotCapacity,
   onGtfsUploaded,
-  showDepotHexes,
-  onToggleDepotHexes,
   demandModels,
   selectedDemandModelId,
   demandSamplePercent,
@@ -61,9 +87,6 @@ export function OperatorView({
   onDemandSampleChange,
   evaluating = false
 }: OperatorViewProps) {
-  const [selectedModes, setSelectedModes] = useState<Set<string>>(new Set());
-  const [newDepotVehicles, setNewDepotVehicles] = useState(5);
-  const [newDepotCapacity, setNewDepotCapacity] = useState(4);
   const [busRoutes, setBusRoutes] = useState<BusRoute[]>([]);
   const [activeBusRouteId, setActiveBusRouteId] = useState<string | null>(null);
   const [gtfsMode, setGtfsMode] = useState(false);
@@ -73,23 +96,12 @@ export function OperatorView({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const demandFileInputRef = useRef<HTMLInputElement | null>(null);
   const [isCollapsed, setIsCollapsed] = useState(false);
-  const [onDemandExpanded, setOnDemandExpanded] = useState(true);
   const [busExpanded, setBusExpanded] = useState(true);
   const selectedDemandModel =
     demandModels.find((model) => model.id === selectedDemandModelId) ?? demandModels[0];
 
-  const toggleMode = (mode: string) => {
-    const newModes = new Set(selectedModes);
-    if (newModes.has(mode)) {
-      newModes.delete(mode);
-    } else {
-      newModes.add(mode);
-    }
-    setSelectedModes(newModes);
-  };
-
   const handleAddDepotClick = () => {
-    onStartDepotWizard({ vehicles: newDepotVehicles, capacity: newDepotCapacity });
+    onStartDepotWizard({ vehicles: defaultDepotVehicles, capacity: defaultDepotCapacity });
   };
 
   const handleGtfsFileSelected = async (file: File | null) => {
@@ -203,6 +215,11 @@ export function OperatorView({
     void updateBusRoute(targetRouteId, { [type]: value });
   };
 
+  const formatDraftLocation = (location: { coords: [number, number]; address?: string } | null) => {
+    if (!location) return 'No location selected yet.';
+    return location.address ?? formatCoordinates(location.coords);
+  };
+
   // Expose handleAddDepot to parent via window object for map clicks
   if (typeof window !== 'undefined') {
     (window as any).handleOperatorSetOrigin = (coordinates: [number, number]) =>
@@ -292,245 +309,284 @@ export function OperatorView({
           </div>
         </div>
 
-        <div className="panel space-y-2">
-          <div className="panel-title">Map Overlays</div>
-          <label className="control-row">
-            <span>Show Service Hex Grid</span>
-            <input
-              type="checkbox"
-              checked={showDepotHexes}
-              onChange={(e) => onToggleDepotHexes(e.target.checked)}
-              className="h-4 w-4"
-            />
-          </label>
-          <div className="control-hint">Hex grid always shows during depot selection.</div>
+        <div className="panel space-y-3">
+          <div className="panel-title">Depots</div>
+          <button
+            onClick={handleAddDepotClick}
+            disabled={depotWizardActive}
+            className="btn btn-primary w-full"
+          >
+            <Plus size={16} />
+            <span>{depotWizardActive ? 'Adding Depot...' : 'Add Depot'}</span>
+          </button>
+          {depots.length > 0 && (
+            <div className="space-y-2">
+              <div className="panel-subtitle">Depots ({depots.length})</div>
+              {depots.map((depot, index) => (
+                <div key={depot.id} className="control-row">
+                  <span>Depot {index + 1}</span>
+                  <button
+                    onClick={() => onRemoveDepot(depot.id)}
+                    className="btn btn-ghost"
+                    type="button"
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
+
+        {depotWizardActive && (
+          <div className="panel space-y-3">
+            <div className="panel-title">Add Depot</div>
+            <div className="text-xs text-muted">
+              {depotWizardStep === 'pick-location' && 'Step 1 of 3: Pick location'}
+              {depotWizardStep === 'select-zone' && 'Step 2 of 3: Select service zone'}
+              {depotWizardStep === 'vehicles' && 'Step 3 of 3: Vehicles & capacity'}
+            </div>
+
+            {depotWizardStep === 'pick-location' && (
+              <div className="space-y-3">
+                <div className="text-sm text-strong">
+                  Pick a spot on the map to place the depot.
+                </div>
+                <div className="control-row text-xs">
+                  {formatDraftLocation(draftDepotLocation)}
+                  {depotGeocoding && <span className="ml-2 text-muted">Looking up address...</span>}
+                </div>
+              </div>
+            )}
+
+            {depotWizardStep === 'select-zone' && (
+              <div className="space-y-3">
+                <div className="text-sm text-strong">
+                  Select contiguous hexagons for the service zone.
+                </div>
+                <div className="text-xs text-muted">
+                  Selected hexes: <span className="font-semibold text-strong">{draftDepotHexes.length}</span>
+                </div>
+                {depotZoneError && (
+                  <div className="text-xs text-red-600">{depotZoneError}</div>
+                )}
+              </div>
+            )}
+
+            {depotWizardStep === 'vehicles' && (
+              <div className="space-y-4">
+                <div className="text-sm text-strong">
+                  Set a homogeneous fleet size and capacity for this depot.
+                </div>
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs text-muted mb-1">Vehicles</label>
+                    <input
+                      type="number"
+                      min={1}
+                      value={draftDepotVehicles}
+                      onChange={(e) => onDraftDepotVehiclesChange(parseInt(e.target.value) || 0)}
+                      className="control-input"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-muted mb-1">Vehicle Capacity</label>
+                    <input
+                      type="number"
+                      min={1}
+                      value={draftDepotCapacity}
+                      onChange={(e) => onDraftDepotCapacityChange(parseInt(e.target.value) || 0)}
+                      className="control-input"
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="flex items-center justify-between">
+              <button
+                onClick={onDepotWizardCancel}
+                className="btn btn-ghost"
+              >
+                Cancel
+              </button>
+              <div className="flex gap-2">
+                {depotWizardStep !== 'pick-location' && (
+                  <button
+                    onClick={onDepotWizardBack}
+                    className="btn btn-outline"
+                  >
+                    Back
+                  </button>
+                )}
+                {depotWizardStep === 'pick-location' && (
+                  <button
+                    onClick={onDepotWizardNext}
+                    disabled={!draftDepotLocation}
+                    className="btn btn-primary"
+                  >
+                    Next
+                  </button>
+                )}
+                {depotWizardStep === 'select-zone' && (
+                  <button
+                    onClick={onDepotWizardNext}
+                    className="btn btn-primary"
+                  >
+                    Done
+                  </button>
+                )}
+                {depotWizardStep === 'vehicles' && (
+                  <button
+                    onClick={onDepotWizardSave}
+                    className="btn btn-primary"
+                  >
+                    Save Depot
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
 
         <div className="panel space-y-3">
-          <div className="panel-title">Service Modes</div>
           <button
-            onClick={() => toggleMode('on-demand')}
-            className="btn btn-outline w-full justify-start"
-            data-active={selectedModes.has('on-demand')}
+            onClick={() => setBusExpanded(!busExpanded)}
+            className="panel-title w-full"
+            type="button"
           >
-            <Car size={16} />
-            <span>On-Demand</span>
+            <span>Fixed Line Configuration</span>
+            {busExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
           </button>
-          <button
-            onClick={() => toggleMode('bus')}
-            className="btn btn-outline w-full justify-start"
-            data-active={selectedModes.has('bus')}
-          >
-            <Bus size={16} />
-            <span>Bus (Fixed Line)</span>
-          </button>
-        </div>
-
-        {selectedModes.has('on-demand') && (
-          <div className="panel space-y-3">
-            <button
-              onClick={() => setOnDemandExpanded(!onDemandExpanded)}
-              className="panel-title w-full"
-              type="button"
-            >
-              <span>On-Demand Configuration</span>
-              {onDemandExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-            </button>
-            {onDemandExpanded && (
-              <div className="space-y-3">
-                <div className="control">
-                  <label className="control-label">Vehicles per Depot</label>
-                  <input
-                    type="number"
-                    value={newDepotVehicles}
-                    onChange={(e) => setNewDepotVehicles(parseInt(e.target.value) || 0)}
-                    className="control-input"
-                    min="1"
-                  />
-                </div>
-                <div className="control">
-                  <label className="control-label">Vehicle Capacity</label>
-                  <input
-                    type="number"
-                    value={newDepotCapacity}
-                    onChange={(e) => setNewDepotCapacity(parseInt(e.target.value) || 0)}
-                    className="control-input"
-                    min="1"
-                  />
-                </div>
+          {busExpanded && (
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-2">
                 <button
-                  onClick={handleAddDepotClick}
-                  disabled={depotWizardActive}
-                  className="btn btn-primary w-full"
+                  onClick={() => setGtfsMode(false)}
+                  className="btn btn-outline w-full"
+                  data-active={!gtfsMode}
                 >
-                  <Plus size={16} />
-                  <span>{depotWizardActive ? 'Adding Depot...' : 'Add Depot'}</span>
+                  Custom Routes
                 </button>
+                <button
+                  onClick={() => setGtfsMode(true)}
+                  className="btn btn-outline w-full"
+                  data-active={gtfsMode}
+                >
+                  Upload GTFS
+                </button>
+              </div>
 
-                {depots.length > 0 && (
-                  <div className="space-y-2">
-                    <div className="panel-subtitle">Depots ({depots.length})</div>
-                    {depots.map((depot, index) => (
-                      <div key={depot.id} className="control-row">
-                        <span>
-                          Depot {index + 1}: {depot.vehicles} vehicles (cap: {depot.capacity})
-                        </span>
-                        <button
-                          onClick={() => onRemoveDepot(depot.id)}
-                          className="btn btn-ghost"
-                          type="button"
-                        >
-                          <Trash2 size={16} />
-                        </button>
+              {gtfsMode ? (
+                <div className="control-row flex-col items-start">
+                  <div className="flex items-center gap-2">
+                    <Upload size={20} />
+                    <span className="text-sm font-semibold">Upload GTFS File</span>
+                  </div>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".zip,application/zip"
+                    className="hidden"
+                    onChange={(e) => handleGtfsFileSelected(e.target.files?.[0] ?? null)}
+                  />
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={gtfsUploading}
+                    className="btn btn-primary w-full"
+                  >
+                    {gtfsUploading ? 'Uploading...' : 'Choose File'}
+                  </button>
+                  {gtfsError && <div className="warning-banner w-full">{gtfsError}</div>}
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <button onClick={addBusRoute} className="btn btn-primary w-full">
+                    <Plus size={16} />
+                    <span>Add Route</span>
+                  </button>
+
+                  <div className="space-y-3">
+                    {busRoutes.map((route) => (
+                      <div key={route.id} className="control-row flex-col items-start gap-3">
+                        <div className="flex w-full items-center justify-between">
+                          <span className="text-sm font-semibold">Route Configuration</span>
+                          <button
+                            onClick={() => removeBusRoute(route.id)}
+                            className="btn btn-ghost"
+                            type="button"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+
+                        <div className="grid w-full gap-2">
+                          <input
+                            type="text"
+                            placeholder="Origin"
+                            value={route.origin}
+                            onChange={(e) => updateBusRoute(route.id, { origin: e.target.value })}
+                            className="control-input"
+                          />
+                          <input
+                            type="text"
+                            placeholder="Destination"
+                            value={route.destination}
+                            onChange={(e) => updateBusRoute(route.id, { destination: e.target.value })}
+                            className="control-input"
+                          />
+                        </div>
+
+                        <div className="grid w-full grid-cols-3 gap-2">
+                          <div className="control">
+                            <label className="control-label">Buses</label>
+                            <input
+                              type="number"
+                              value={route.buses}
+                              onChange={(e) => updateBusRoute(route.id, { buses: parseInt(e.target.value) || 0 })}
+                              className="control-input"
+                              min="1"
+                            />
+                          </div>
+                          <div className="control">
+                            <label className="control-label">Capacity</label>
+                            <input
+                              type="number"
+                              value={route.capacity}
+                              onChange={(e) => updateBusRoute(route.id, { capacity: parseInt(e.target.value) || 0 })}
+                              className="control-input"
+                              min="1"
+                            />
+                          </div>
+                          <div className="control">
+                            <label className="control-label">Freq (min)</label>
+                            <input
+                              type="number"
+                              value={route.frequency}
+                              onChange={(e) => updateBusRoute(route.id, { frequency: parseInt(e.target.value) || 0 })}
+                              className="control-input"
+                              min="1"
+                            />
+                          </div>
+                        </div>
+
+                        <label className="control-row w-full">
+                          <span>Round Trip</span>
+                          <input
+                            type="checkbox"
+                            checked={route.roundTrip}
+                            onChange={(e) => updateBusRoute(route.id, { roundTrip: e.target.checked })}
+                            className="h-4 w-4"
+                          />
+                        </label>
                       </div>
                     ))}
                   </div>
-                )}
-              </div>
-            )}
-          </div>
-        )}
-
-        {selectedModes.has('bus') && (
-          <div className="panel space-y-3">
-            <button
-              onClick={() => setBusExpanded(!busExpanded)}
-              className="panel-title w-full"
-              type="button"
-            >
-              <span>Fixed Line Configuration</span>
-              {busExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-            </button>
-            {busExpanded && (
-              <div className="space-y-3">
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    onClick={() => setGtfsMode(false)}
-                    className="btn btn-outline w-full"
-                    data-active={!gtfsMode}
-                  >
-                    Custom Routes
-                  </button>
-                  <button
-                    onClick={() => setGtfsMode(true)}
-                    className="btn btn-outline w-full"
-                    data-active={gtfsMode}
-                  >
-                    Upload GTFS
-                  </button>
                 </div>
-
-                {gtfsMode ? (
-                  <div className="control-row flex-col items-start">
-                    <div className="flex items-center gap-2">
-                      <Upload size={20} />
-                      <span className="text-sm font-semibold">Upload GTFS File</span>
-                    </div>
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      accept=".zip,application/zip"
-                      className="hidden"
-                      onChange={(e) => handleGtfsFileSelected(e.target.files?.[0] ?? null)}
-                    />
-                    <button
-                      onClick={() => fileInputRef.current?.click()}
-                      disabled={gtfsUploading}
-                      className="btn btn-primary w-full"
-                    >
-                      {gtfsUploading ? 'Uploading...' : 'Choose File'}
-                    </button>
-                    {gtfsError && <div className="warning-banner w-full">{gtfsError}</div>}
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    <button onClick={addBusRoute} className="btn btn-primary w-full">
-                      <Plus size={16} />
-                      <span>Add Route</span>
-                    </button>
-
-                    <div className="space-y-3">
-                      {busRoutes.map((route) => (
-                        <div key={route.id} className="control-row flex-col items-start gap-3">
-                          <div className="flex w-full items-center justify-between">
-                            <span className="text-sm font-semibold">Route Configuration</span>
-                            <button
-                              onClick={() => removeBusRoute(route.id)}
-                              className="btn btn-ghost"
-                              type="button"
-                            >
-                              <Trash2 size={16} />
-                            </button>
-                          </div>
-
-                          <div className="grid w-full gap-2">
-                            <input
-                              type="text"
-                              placeholder="Origin"
-                              value={route.origin}
-                              onChange={(e) => updateBusRoute(route.id, { origin: e.target.value })}
-                              className="control-input"
-                            />
-                            <input
-                              type="text"
-                              placeholder="Destination"
-                              value={route.destination}
-                              onChange={(e) => updateBusRoute(route.id, { destination: e.target.value })}
-                              className="control-input"
-                            />
-                          </div>
-
-                          <div className="grid w-full grid-cols-3 gap-2">
-                            <div className="control">
-                              <label className="control-label">Buses</label>
-                              <input
-                                type="number"
-                                value={route.buses}
-                                onChange={(e) => updateBusRoute(route.id, { buses: parseInt(e.target.value) || 0 })}
-                                className="control-input"
-                                min="1"
-                              />
-                            </div>
-                            <div className="control">
-                              <label className="control-label">Capacity</label>
-                              <input
-                                type="number"
-                                value={route.capacity}
-                                onChange={(e) => updateBusRoute(route.id, { capacity: parseInt(e.target.value) || 0 })}
-                                className="control-input"
-                                min="1"
-                              />
-                            </div>
-                            <div className="control">
-                              <label className="control-label">Freq (min)</label>
-                              <input
-                                type="number"
-                                value={route.frequency}
-                                onChange={(e) => updateBusRoute(route.id, { frequency: parseInt(e.target.value) || 0 })}
-                                className="control-input"
-                                min="1"
-                              />
-                            </div>
-                          </div>
-
-                          <label className="control-row w-full">
-                            <span>Round Trip</span>
-                            <input
-                              type="checkbox"
-                              checked={route.roundTrip}
-                              onChange={(e) => updateBusRoute(route.id, { roundTrip: e.target.checked })}
-                              className="h-4 w-4"
-                            />
-                          </label>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        )}
+              )}
+            </div>
+          )}
+        </div>
       </SidebarShell>
     </div>
   );

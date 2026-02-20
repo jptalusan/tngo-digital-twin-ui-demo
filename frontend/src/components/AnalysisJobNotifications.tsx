@@ -12,6 +12,15 @@ const formatTime = (timestamp: number) => {
   return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 };
 
+const formatElapsed = (ms: number) => {
+  if (!Number.isFinite(ms) || ms < 0) return '0s';
+  const totalSeconds = Math.round(ms / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (minutes <= 0) return `${seconds}s`;
+  return `${minutes}m ${seconds}s`;
+};
+
 export function AnalysisJobNotifications({ onNavigate }: AnalysisJobNotificationsProps) {
   const { jobs, markRead, markAllRead } = useAnalysisJobs();
   const [open, setOpen] = useState(false);
@@ -96,7 +105,12 @@ export function AnalysisJobNotifications({ onNavigate }: AnalysisJobNotification
                   <div className="mt-1 text-xs text-muted">
                     {job.message ?? 'No message'}
                   </div>
-                  <div className="mt-1 text-xs text-muted">{formatTime(job.updatedAt)}</div>
+                  <div className="mt-1 text-xs text-muted">
+                    {formatTime(job.createdAt)}
+                    {(job.status === 'done' || job.status === 'error') && (
+                      <span>{` · ${formatElapsed(job.updatedAt - job.createdAt)}`}</span>
+                    )}
+                  </div>
                 </button>
               ))
             )}
