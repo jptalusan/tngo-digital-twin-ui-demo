@@ -26,7 +26,7 @@ export function MapContextMenu({ x, y, onSetOrigin, onSetDestination, onClose }:
   return (
     <div
       ref={menuRef}
-      className="fixed bg-white rounded-lg shadow-lg border py-2 z-[2000]"
+      className="fixed floating-card py-2 z-[2000]"
       style={{ left: x, top: y }}
     >
       <button
@@ -34,9 +34,9 @@ export function MapContextMenu({ x, y, onSetOrigin, onSetDestination, onClose }:
           onSetOrigin();
           onClose();
         }}
-        className="w-full px-4 py-2 text-left hover:bg-gray-100 flex items-center gap-2"
+        className="btn btn-ghost w-full justify-start"
       >
-        <MapPin size={16} className="text-green-600" />
+        <MapPin size={16} style={{ color: 'var(--app-accent)' }} />
         <span>Set as Origin</span>
       </button>
       <button
@@ -44,9 +44,9 @@ export function MapContextMenu({ x, y, onSetOrigin, onSetDestination, onClose }:
           onSetDestination();
           onClose();
         }}
-        className="w-full px-4 py-2 text-left hover:bg-gray-100 flex items-center gap-2"
+        className="btn btn-ghost w-full justify-start"
       >
-        <Navigation size={16} className="text-red-600" />
+        <Navigation size={16} style={{ color: 'var(--app-highlight)' }} />
         <span>Set as Destination</span>
       </button>
     </div>

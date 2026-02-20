@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect } from 'react';
-import { Car, Bus, Shuffle, Navigation, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Car, Bus, Shuffle, Navigation } from 'lucide-react';
 import { AutocompleteResult, Route } from '../services/api';
 import { RouteAccordion } from './RouteAccordion';
+import { SidebarShell } from './SidebarShell';
 
 import { RotateCcw } from 'lucide-react';
 
@@ -132,158 +133,103 @@ export function PassengerView({
   };
 
   return (
-    <div className={`${isCollapsed ? 'w-16' : 'w-96'} h-full bg-white border-r transition-all duration-300 relative flex flex-col`}>
-      {/* Collapse Button */}
-      <div className={`flex items-center ${isCollapsed ? 'justify-center py-4' : 'justify-between p-4'} border-b`}>
-        {!isCollapsed && <h2 className="text-lg font-semibold truncate">Plan your Trip</h2>}
+    <SidebarShell
+      title="Passenger View"
+      subtitle="Trip planning and routing"
+      collapsible
+      collapsed={isCollapsed}
+      onToggleCollapse={() => setIsCollapsed(!isCollapsed)}
+      collapsedLabel="Passenger"
+      headerAction={loading ? <span className="control-chip">Routing</span> : undefined}
+    >
+      <div className="panel space-y-4">
+        <div className="panel-title">Trip Setup</div>
+        <div className="control">
+          <label className="control-label">Origin</label>
+          <input
+            ref={originInputRef}
+            type="text"
+            value={originQuery}
+            onChange={(e) => {
+              setOriginQuery(e.target.value);
+            }}
+            className="control-input"
+            placeholder="Enter starting location"
+          />
+        </div>
+        <div className="control">
+          <label className="control-label">Destination</label>
+          <input
+            ref={destinationInputRef}
+            type="text"
+            value={destinationQuery}
+            onChange={(e) => {
+              setDestinationQuery(e.target.value);
+            }}
+            className="control-input"
+            placeholder="Enter destination"
+          />
+        </div>
+      </div>
+
+      <div className="panel space-y-3">
+        <div className="panel-title">Travel Mode</div>
+        <div className="grid grid-cols-2 gap-2">
+          {[
+            { id: 'car', label: 'Car', icon: Car },
+            { id: 'on-demand', label: 'On-Demand', icon: Car },
+            { id: 'bus', label: 'Bus', icon: Bus },
+            { id: 'car+bus', label: 'Car + Bus', icon: Shuffle }
+          ].map(({ id, label, icon: Icon }) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => handleSelectMode(id as typeof selectedMode)}
+              data-active={selectedMode === id}
+              className="btn btn-outline w-full justify-start"
+            >
+              <Icon size={16} />
+              <span>{label}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="panel space-y-3">
+        <div className="panel-title">Actions</div>
         <button
-          onClick={() => setIsCollapsed(!isCollapsed)}
-          className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-          title={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+          onClick={handleNavigate}
+          disabled={!selectedOrigin || !selectedDestination || loading}
+          className="btn btn-primary w-full"
         >
-          {isCollapsed ? <ChevronRight size={20} /> : <ChevronLeft size={20} />}
+          <Navigation size={16} />
+          <span>{loading ? 'Loading...' : 'Navigate'}</span>
+        </button>
+        <button onClick={onReset} className="btn btn-outline w-full">
+          <RotateCcw size={16} />
+          <span>Reset</span>
         </button>
       </div>
 
-      {/* Collapsed State - Clickable Tab */}
-      {isCollapsed && (
-        <div 
-          onClick={() => setIsCollapsed(false)}
-          className="flex-1 w-full hover:bg-gray-50 cursor-pointer flex items-center justify-center"
-        >
-          <div className="transform -rotate-90 text-sm font-medium text-gray-600 whitespace-nowrap">
-            Plan Trip
+      {routes.length > 0 && (
+        <div className="panel space-y-3">
+          <div className="panel-title">
+            <span>Routes</span>
+            <span className="tag">{routes.length} options</span>
+          </div>
+          <div className="space-y-3">
+            {routes.map((route, index) => (
+              <RouteAccordion
+                key={index}
+                route={route}
+                expanded={expandedRoute === index}
+                onHeaderClick={() => handleRouteHeaderClick(route, index)}
+                onSegmentClick={onSegmentClick}
+              />
+            ))}
           </div>
         </div>
       )}
-
-      {/* Main Content */}
-      {!isCollapsed && (
-        <>
-          <div className="p-6 w-full flex-1 overflow-y-auto">
-
-
-            {/* Origin Input */}
-            <div className="mb-4 relative">
-              <label className="block text-sm mb-2">Origin</label>
-              <input
-                ref={originInputRef}
-                type="text"
-                value={originQuery}
-                onChange={(e) => {
-                  setOriginQuery(e.target.value);
-                }}
-                className="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="Enter starting location"
-              />
-            </div>
-
-            {/* Destination Input */}
-            <div className="mb-6 relative">
-              <label className="block text-sm mb-2">Destination</label>
-              <input
-                ref={destinationInputRef}
-                type="text"
-                value={destinationQuery}
-                onChange={(e) => {
-                  setDestinationQuery(e.target.value);
-                }}
-                className="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="Enter destination"
-              />
-            </div>
-
-            {/* Mode Selection */}
-            <div className="mb-6">
-              <label className="block text-sm mb-3">Travel Mode</label>
-              <div className="grid grid-cols-2 gap-3">
-                <button
-                  onClick={() => handleSelectMode('car')}
-                  className={`flex items-center justify-center gap-2 px-4 py-3 rounded-lg border-2 transition-colors ${
-                    selectedMode === 'car'
-                      ? 'border-blue-500 bg-blue-50 text-blue-700'
-                      : 'border-gray-300 hover:border-gray-400'
-                  }`}
-                >
-                  <Car size={20} />
-                  <span>Car</span>
-                </button>
-                <button
-                  onClick={() => handleSelectMode('on-demand')}
-                  className={`flex items-center justify-center gap-2 px-4 py-3 rounded-lg border-2 transition-colors ${
-                    selectedMode === 'on-demand'
-                      ? 'border-blue-500 bg-blue-50 text-blue-700'
-                      : 'border-gray-300 hover:border-gray-400'
-                  }`}
-                >
-                  <Car size={20} />
-                  <span>On-Demand</span>
-                </button>
-                <button
-                  onClick={() => handleSelectMode('bus')}
-                  className={`flex items-center justify-center gap-2 px-4 py-3 rounded-lg border-2 transition-colors ${
-                    selectedMode === 'bus'
-                      ? 'border-blue-500 bg-blue-50 text-blue-700'
-                      : 'border-gray-300 hover:border-gray-400'
-                  }`}
-                >
-                  <Bus size={20} />
-                  <span>Bus</span>
-                </button>
-                <button
-                  onClick={() => handleSelectMode('car+bus')}
-                  className={`flex items-center justify-center gap-2 px-4 py-3 rounded-lg border-2 transition-colors ${
-                    selectedMode === 'car+bus'
-                      ? 'border-blue-500 bg-blue-50 text-blue-700'
-                      : 'border-gray-300 hover:border-gray-400'
-                  }`}
-                >
-                  <Shuffle size={20} />
-                  <span>Car+Bus</span>
-                </button>
-              </div>
-            </div>
-
-            {/* Navigate Button */}
-            <div className="space-y-4">
-              <button
-                onClick={handleNavigate}
-                disabled={!selectedOrigin || !selectedDestination || loading}
-                className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
-              >
-                <Navigation size={20} />
-                <span>{loading ? 'Loading...' : 'Navigate'}</span>
-              </button>
-
-              <button
-                onClick={onReset}
-                className="w-full flex items-center justify-center gap-2 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100 transition-colors"
-              >
-                <RotateCcw size={18} />
-                <span>Reset</span>
-              </button>
-            </div>
-
-            {/* Routes */}
-            {routes.length > 0 && (
-              <div className="mt-6">
-                <h3 className="text-lg mb-4">Routes</h3>
-                <div className="space-y-3">
-                  {routes.map((route, index) => (
-                    <RouteAccordion
-                      key={index}
-                      route={route}
-                      expanded={expandedRoute === index}
-                      onHeaderClick={() => handleRouteHeaderClick(route, index)}
-                      onSegmentClick={onSegmentClick}
-                    />
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        </>
-      )}
-    </div>
+    </SidebarShell>
   );
 }

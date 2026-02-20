@@ -95,3 +95,7 @@ docker-compose.override.yml
 .idea/
 
 backend/scripts/data/**
+*.sql
+*.csv
+*.html
+*.json

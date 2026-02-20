@@ -37,19 +37,22 @@ export function EvaluationDrawer({ isOpen, onClose, metrics }: EvaluationDrawerP
     { category: 'Personnel', value: 15 },
   ];
 
-  const COLORS = ['#3b82f6', '#10b981', '#f59e0b'];
+  const COLORS = ['var(--chart-1)', 'var(--chart-2)', 'var(--chart-4)'];
 
   return (
-    <div 
-      className={`absolute bottom-0 left-0 right-0 bg-white border-t shadow-lg z-[1050] transition-all duration-300 ease-in-out ${isCollapsed ? 'h-16' : 'h-1/2'}`}
+    <div
+      className={`absolute bottom-0 left-0 right-0 side-panel z-[1050] transition-all duration-300 ease-in-out ${isCollapsed ? 'h-20' : 'h-1/2'}`}
     >
       <div className="h-full flex flex-col">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b bg-gray-50 cursor-pointer" onClick={() => setIsCollapsed(!isCollapsed)}>
+        <div
+          className="flex items-center justify-between px-6 py-4 border-b border-default cursor-pointer"
+          onClick={() => setIsCollapsed(!isCollapsed)}
+        >
           <div className="flex items-center gap-2">
             <h3 className="text-lg font-medium">Evaluation Results</h3>
             {isCollapsed && (
-              <div className="flex gap-4 text-sm text-gray-500 ml-4">
+              <div className="flex gap-4 text-sm text-muted ml-4">
                 <span>Coverage: {metrics.totalCoverage}</span>
                 <span>Cost: {metrics.estimatedCost}</span>
               </div>
@@ -61,17 +64,17 @@ export function EvaluationDrawer({ isOpen, onClose, metrics }: EvaluationDrawerP
                 e.stopPropagation();
                 setIsCollapsed(!isCollapsed);
               }}
-              className="p-1 text-gray-500 hover:text-gray-700 hover:bg-gray-200 rounded"
+              className="btn btn-ghost"
             >
               {isCollapsed ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
             </button>
-            <div className="w-px h-4 bg-gray-300 mx-1" />
+            <div style={{ width: 1, height: 16, backgroundColor: 'var(--app-border)', margin: '0 4px' }} />
             <button
               onClick={(e) => {
                 e.stopPropagation();
                 onClose();
               }}
-              className="p-1 text-gray-500 hover:text-gray-700 hover:bg-gray-200 rounded"
+              className="btn btn-ghost"
             >
               <X size={20} />
             </button>
@@ -85,24 +88,24 @@ export function EvaluationDrawer({ isOpen, onClose, metrics }: EvaluationDrawerP
             <div>
               <h4 className="font-medium mb-4">Key Metrics</h4>
               <div className="space-y-3">
-                <div className="p-3 bg-blue-50 rounded-lg">
-                  <div className="text-sm text-gray-600">Total Coverage</div>
+                <div className="panel-item">
+                  <div className="text-sm text-muted">Total Coverage</div>
                   <div className="text-xl">{metrics.totalCoverage}</div>
                 </div>
-                <div className="p-3 bg-green-50 rounded-lg">
-                  <div className="text-sm text-gray-600">Estimated Cost</div>
+                <div className="panel-item">
+                  <div className="text-sm text-muted">Estimated Cost</div>
                   <div className="text-xl">{metrics.estimatedCost}</div>
                 </div>
-                <div className="p-3 bg-purple-50 rounded-lg">
-                  <div className="text-sm text-gray-600">Ridership</div>
+                <div className="panel-item">
+                  <div className="text-sm text-muted">Ridership</div>
                   <div className="text-xl">{metrics.ridership}</div>
                 </div>
-                <div className="p-3 bg-orange-50 rounded-lg">
-                  <div className="text-sm text-gray-600">Avg Wait Time</div>
+                <div className="panel-item">
+                  <div className="text-sm text-muted">Avg Wait Time</div>
                   <div className="text-xl">{metrics.averageWaitTime}</div>
                 </div>
-                <div className="p-3 bg-pink-50 rounded-lg">
-                  <div className="text-sm text-gray-600">Service Hours</div>
+                <div className="panel-item">
+                  <div className="text-sm text-muted">Service Hours</div>
                   <div className="text-xl">{metrics.serviceHours}</div>
                 </div>
               </div>
@@ -117,7 +120,7 @@ export function EvaluationDrawer({ isOpen, onClose, metrics }: EvaluationDrawerP
                   <XAxis dataKey="name" />
                   <YAxis />
                   <Tooltip />
-                  <Bar dataKey="coverage" fill="#3b82f6" />
+                  <Bar dataKey="coverage" fill="var(--chart-1)" />
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -131,7 +134,7 @@ export function EvaluationDrawer({ isOpen, onClose, metrics }: EvaluationDrawerP
                   <XAxis dataKey="time" />
                   <YAxis />
                   <Tooltip />
-                  <Line type="monotone" dataKey="riders" stroke="#10b981" strokeWidth={2} />
+                  <Line type="monotone" dataKey="riders" stroke="var(--chart-2)" strokeWidth={2} />
                 </LineChart>
               </ResponsiveContainer>
             </div>
@@ -161,7 +164,7 @@ export function EvaluationDrawer({ isOpen, onClose, metrics }: EvaluationDrawerP
                 </PieChart>
               </ResponsiveContainer>
               <div className="flex-1">
-                <p className="text-sm text-gray-600">
+                <p className="text-sm text-muted">
                   The evaluation shows strong coverage in most zones with peak ridership during morning and evening commute hours. 
                   Cost distribution is weighted toward operations with opportunities for efficiency improvements.
                 </p>

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import { MoveODAnalysisMap, HeatPoint } from './MoveODAnalysisMap';
 import { useAnalysisJobs } from '../state/analysisJobs';
+import { SidebarShell } from './SidebarShell';
 
 export type MoveODAnalysisSelection = {
   state_fips: string;
@@ -59,14 +60,25 @@ const normalizeChartData = (items: any[]): ChartDatum[] => {
     .map((item) => {
       if (item == null) return null;
       if (typeof item === 'number') return { label: String(item), value: item };
+      const labelCandidates = [
+        item.label,
+        item.bin,
+        item.bucket,
+        item.hour,
+        item.name,
+        item.origin,
+        item.origin_geoid,
+        item.origin_name,
+        item.origin_id,
+        item.origin_zone,
+        item.origin_taz,
+        item.taz,
+        item.zone,
+        item.category,
+        item.id
+      ];
       const label =
-        item.label ??
-        item.bin ??
-        item.bucket ??
-        item.hour ??
-        item.name ??
-        item.origin ??
-        item.category ??
+        labelCandidates.find((value: unknown) => value !== undefined && value !== null && String(value).trim() !== '') ??
         'Unknown';
       const value =
         item.value ??
@@ -483,21 +495,19 @@ export function MoveODAnalysisPage({ selection, baseMapStyle = 'light' }: MoveOD
 
   const renderChart = (items: ChartDatum[], title: string) => (
     <div className="h-full w-full flex flex-col">
-      <div className="text-sm font-semibold text-slate-700 mb-3">{title}</div>
+      <div className="text-sm font-semibold text-strong mb-3">{title}</div>
       <div className="flex-1" style={{ minHeight: 280 }}>
         <ResponsiveContainer width="100%" height="100%">
           <BarChart data={items} margin={{ top: 10, right: 20, left: 0, bottom: 10 }}>
             <XAxis dataKey="label" tick={{ fontSize: 10 }} interval={0} angle={-30} textAnchor="end" height={60} />
             <YAxis tick={{ fontSize: 10 }} width={30} />
             <Tooltip />
-            <Bar dataKey="value" fill="#2563eb" radius={[4, 4, 0, 0]} />
+            <Bar dataKey="value" fill="var(--chart-1)" radius={[4, 4, 0, 0]} />
           </BarChart>
         </ResponsiveContainer>
       </div>
     </div>
   );
-
-  const canAnalyze = true;
 
   useEffect(() => {
     if (!activeSelection) {
@@ -526,27 +536,38 @@ export function MoveODAnalysisPage({ selection, baseMapStyle = 'light' }: MoveOD
   }, [selectedCountyGeoid]);
 
   return (
-    <div className="flex-1 flex min-h-0 overflow-hidden relative">
-      <div
-        className="w-[240px] max-w-[240px] min-w-[240px] shrink-0 border-r bg-white flex flex-col"
-        style={{ flex: '0 0 clamp(200px, 20vw, 260px)' }}
+    <div className="flex-1 flex min-h-0 overflow-hidden relative gap-4 p-4">
+      <SidebarShell
+        title="MoveOD Analysis"
+        subtitle={
+          activeSelection
+            ? `${activeSelection.state_name ?? activeSelection.state_fips} • ${
+                activeSelection.county_name ?? activeSelection.county_fips
+              }`
+            : 'Select a state and county'
+        }
+        footer={
+          <button
+            type="button"
+            onClick={handleAnalyze}
+            disabled={analyzing || !selectedStateFips || !selectedCountyGeoid}
+            className="btn btn-primary w-full"
+          >
+            {analyzing ? 'Analyzing…' : 'Analyze'}
+          </button>
+        }
       >
-        <div className="px-4 py-3 border-b">
-          <div className="text-lg font-semibold text-slate-800">MoveOD Analysis</div>
-          <div className="text-xs text-slate-500">
-            {activeSelection ? `${activeSelection.state_name ?? activeSelection.state_fips} • ${activeSelection.county_name ?? activeSelection.county_fips}` : 'Select a state and county'}
-          </div>
-        </div>
-        <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
-          <div className="space-y-2">
-            <label className="text-xs font-semibold text-slate-600">State</label>
+        <div className="panel space-y-3">
+          <div className="panel-title">Geography</div>
+          <div className="control">
+            <label className="control-label">State</label>
             <select
               value={selectedStateFips}
               onChange={(e) => {
                 setSelectedStateFips(e.target.value);
                 setSelectedCountyGeoid('');
               }}
-              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+              className="control-select"
             >
               <option value="">Select state</option>
               {states.map((state) => (
@@ -556,12 +577,12 @@ export function MoveODAnalysisPage({ selection, baseMapStyle = 'light' }: MoveOD
               ))}
             </select>
           </div>
-          <div className="space-y-2">
-            <label className="text-xs font-semibold text-slate-600">County</label>
+          <div className="control">
+            <label className="control-label">County</label>
             <select
               value={selectedCountyGeoid}
               onChange={(e) => setSelectedCountyGeoid(e.target.value)}
-              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+              className="control-select"
               disabled={!selectedStateFips}
             >
               <option value="">Select county</option>
@@ -572,144 +593,104 @@ export function MoveODAnalysisPage({ selection, baseMapStyle = 'light' }: MoveOD
               ))}
             </select>
           </div>
-          <button
-            type="button"
-            onClick={handleAnalyze}
-            className="w-full rounded-lg px-3 py-2 text-sm font-semibold text-white"
-            style={{ backgroundColor: '#16a34a', border: '1px solid #15803d' }}
-          >
-            {analyzing ? 'Analyzing…' : 'Analyze'}
-          </button>
-          {activeSelection && (
-            <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 space-y-2">
-              <div className="text-[11px] font-semibold text-slate-600">Map Points</div>
-              <label className="flex items-center gap-2 text-xs text-slate-700">
-                <input
-                  type="checkbox"
-                  checked={showOriginPoints}
-                  onChange={(e) => setShowOriginPoints(e.target.checked)}
-                  className="h-4 w-4 rounded border-slate-300"
-                />
-                Show origins (blue)
-              </label>
-              <label className="flex items-center gap-2 text-xs text-slate-700">
-                <input
-                  type="checkbox"
-                  checked={showDestinationPoints}
-                  onChange={(e) => setShowDestinationPoints(e.target.checked)}
-                  className="h-4 w-4 rounded border-slate-300"
-                />
-                Show destinations (red)
-              </label>
-            </div>
-          )}
-          {jobId && (
-            <div className="text-xs text-slate-500">Job ID: {jobId}</div>
-          )}
-          <div className="border-t border-slate-200 pt-3" />
-          {views.map((view) => (
-            <button
-              key={view.id}
-              type="button"
-              onClick={() => {
-                const availabilityMap: Record<ViewId, boolean> = {
-                  'map-default': true,
-                  'heatmap-origin': availability.originHeat,
-                  'heatmap-destination': availability.destinationHeat,
-                  'departure-bins': availability.departureBins,
-                  'arrival-bins': availability.arrivalBins,
-                  'travel-time-bins': availability.travelTimeBins,
-                  'top-origins': availability.topOrigins,
-                  'flow-balance': availability.flowBalance
-                };
-                if (availabilityMap[view.id] && activeSelection) {
-                  setActiveView(view.id);
-                }
-              }}
-              disabled={
-                !activeSelection ||
-                (view.id === 'heatmap-origin' && !availability.originHeat) ||
-                (view.id === 'heatmap-destination' && !availability.destinationHeat) ||
-                (view.id === 'departure-bins' && !availability.departureBins) ||
-                (view.id === 'arrival-bins' && !availability.arrivalBins) ||
-                (view.id === 'travel-time-bins' && !availability.travelTimeBins) ||
-                (view.id === 'top-origins' && !availability.topOrigins) ||
-                (view.id === 'flow-balance' && !availability.flowBalance)
-              }
-              className={`w-full text-left rounded-lg border px-3 py-2 text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
-                activeSelection && activeView === view.id
-                  ? 'border-blue-500 bg-blue-50 text-blue-700'
-                  : 'border-slate-200 hover:border-slate-300'
-              }`}
-              style={
-                !activeSelection ||
-                (view.id === 'heatmap-origin' && !availability.originHeat) ||
-                (view.id === 'heatmap-destination' && !availability.destinationHeat) ||
-                (view.id === 'departure-bins' && !availability.departureBins) ||
-                (view.id === 'arrival-bins' && !availability.arrivalBins) ||
-                (view.id === 'travel-time-bins' && !availability.travelTimeBins) ||
-                (view.id === 'top-origins' && !availability.topOrigins) ||
-                (view.id === 'flow-balance' && !availability.flowBalance)
-                  ? { backgroundColor: '#f8fafc', color: '#94a3b8', borderColor: '#e2e8f0' }
-                  : undefined
-              }
-            >
-              {view.label}
-            </button>
-          ))}
-          {activeSelection && (
-            <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 space-y-2">
-              <div className="flex items-center justify-between">
-                <span>Visible points</span>
-                <span className="font-semibold text-slate-700">
-                  {Math.round(originPoints.length * (pointVisibilityPercent / 100)) +
-                    Math.round(destinationPoints.length * (pointVisibilityPercent / 100))}{' '}
-                  / {originPoints.length + destinationPoints.length}
-                </span>
-              </div>
-              <input
-                type="range"
-                min={0}
-                max={100}
-                value={pointVisibilityPercent}
-                onChange={(e) => setPointVisibilityPercent(Number(e.target.value))}
-                className="w-full"
-              />
-              <div className="flex items-center justify-between text-[11px] text-slate-500">
-                <span>0%</span>
-                <span>{pointVisibilityPercent}%</span>
-                <span>100%</span>
-              </div>
-            </div>
-          )}
-          <div className="pt-2 text-xs text-slate-500">
-            Other ideas: peak-period OD share, distance vs. time scatter, weekday vs. weekend split, top destinations.
-          </div>
         </div>
-      </div>
 
-      <div
-        className="flex-1 min-w-0 min-h-0 relative bg-white"
-        style={{ flex: '1 1 auto', width: 'calc(100% - clamp(200px, 20vw, 260px))' }}
-      >
+        {jobId && <div className="control-hint">Job ID: {jobId}</div>}
+
+        <div className="panel space-y-2">
+          <div className="panel-title">Views</div>
+          {views.map((view) => {
+            const availabilityMap: Record<ViewId, boolean> = {
+              'map-default': true,
+              'heatmap-origin': availability.originHeat,
+              'heatmap-destination': availability.destinationHeat,
+              'departure-bins': availability.departureBins,
+              'arrival-bins': availability.arrivalBins,
+              'travel-time-bins': availability.travelTimeBins,
+              'top-origins': availability.topOrigins,
+              'flow-balance': availability.flowBalance
+            };
+            const isDisabled = !activeSelection || !availabilityMap[view.id];
+            return (
+              <button
+                key={view.id}
+                type="button"
+                onClick={() => {
+                  if (availabilityMap[view.id] && activeSelection) {
+                    setActiveView(view.id);
+                  }
+                }}
+                disabled={isDisabled}
+                data-active={activeSelection && activeView === view.id}
+                className="btn btn-outline w-full justify-between"
+              >
+                <span>{view.label}</span>
+                {isDisabled ? <span className="tag">Pending</span> : <span className="tag">Ready</span>}
+              </button>
+            );
+          })}
+        </div>
+
+        {activeSelection && (
+          <div className="panel space-y-2">
+            <div className="panel-title">Visibility</div>
+            <div className="table-row">
+              <span>Visible points</span>
+              <span>
+                {Math.round(originPoints.length * (pointVisibilityPercent / 100)) +
+                  Math.round(destinationPoints.length * (pointVisibilityPercent / 100))}{' '}
+                / {originPoints.length + destinationPoints.length}
+              </span>
+            </div>
+            <input
+              type="range"
+              min={0}
+              max={100}
+              value={pointVisibilityPercent}
+              onChange={(e) => setPointVisibilityPercent(Number(e.target.value))}
+              className="w-full"
+            />
+            <div className="flex items-center justify-between text-xs text-muted">
+              <span>0%</span>
+              <span>{pointVisibilityPercent}%</span>
+              <span>100%</span>
+            </div>
+          </div>
+        )}
+
+        <div className="control-hint">
+          Other ideas: peak-period OD share, distance vs. time scatter, weekday vs. weekend split, top destinations.
+        </div>
+      </SidebarShell>
+
+      <div className="map-panel">
+        {!loading && !error && !activeSelection && (
+          <div className="absolute inset-0 z-10 flex items-center justify-center p-6 pointer-events-none">
+            <div className="empty-state">
+              <div className="empty-art" aria-hidden="true">
+                <div className="empty-ring" />
+                <div className="empty-orbit" />
+                <div className="empty-dot" />
+              </div>
+              <div className="empty-title">Ready for analysis</div>
+              <div className="empty-text">
+                Select a state and county to begin analysis.
+              </div>
+              <div className="empty-hint">Tip: pick a county with existing OD data for the fastest results.</div>
+            </div>
+          </div>
+        )}
         {loading && (
-          <div className="absolute inset-0 z-20 flex items-center justify-center bg-white/70 backdrop-blur-sm">
-            <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm text-slate-600 shadow-lg">
-              <span className="inline-flex h-4 w-4 animate-spin rounded-full border-2 border-slate-300 border-t-blue-600" />
+          <div className="absolute inset-0 z-20 flex items-center justify-center overlay-scrim">
+            <div className="floating-card flex items-center gap-2 text-sm">
+              <span className="inline-flex h-4 w-4 animate-spin rounded-full border-2 border-slate-300 border-t-emerald-500" />
               Loading analysis…
             </div>
           </div>
         )}
         {error && (
-          <div className="absolute inset-0 z-20 flex items-center justify-center bg-white/70 backdrop-blur-sm">
-            <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-              {error}
-            </div>
-          </div>
-        )}
-        {!loading && !error && !activeSelection && (
-          <div className="absolute inset-0 z-10 flex items-center justify-center text-sm font-semibold text-slate-500">
-            Select state and county to begin analysis.
+          <div className="absolute inset-0 z-20 flex items-center justify-center overlay-scrim">
+            <div className="warning-banner">{error}</div>
           </div>
         )}
         {!loading && !error && activeSelection && activeView === 'heatmap-origin' && (

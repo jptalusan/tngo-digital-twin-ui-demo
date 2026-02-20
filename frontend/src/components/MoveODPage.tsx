@@ -13,6 +13,7 @@ import {
   useStatesSearch,
   useSyntheticDemand
 } from '../hooks/useMoveOD';
+import { SidebarShell } from './SidebarShell';
 
 export type StateOption = {
   state_fips: string;
@@ -403,21 +404,34 @@ export function MoveODPage({ baseMapStyle = 'light', onAnalyze }: MoveODPageProp
   const countyHighlight = selectedCountyGeoJSON as Feature | FeatureCollection | null;
 
   return (
-    <div className="flex-1 flex min-h-0 overflow-hidden relative">
-      <div className="w-[360px] max-w-[360px] min-w-[360px] border-r bg-white flex flex-col">
-        <div className="px-4 py-3 border-b">
-          <div className="text-lg font-semibold text-slate-800">MoveOD</div>
-          <div className="text-xs text-slate-500">Configure data extraction for a state and county.</div>
-        </div>
-        <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
-          {errorBanner && (
-            <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
-              {errorBanner}
-            </div>
-          )}
-
+    <div className="flex-1 flex min-h-0 overflow-hidden relative gap-4 p-4">
+      <SidebarShell
+        title="MoveOD"
+        subtitle="Configure data extraction and demand synthesis."
+        footer={
           <div className="space-y-2">
-            <label className="text-xs font-semibold text-slate-600">State</label>
+            <button
+              type="button"
+              onClick={handleGenerate}
+              disabled={!generateEnabled}
+              className="btn btn-primary w-full"
+            >
+              Generate
+            </button>
+            <div className="text-xs text-muted">
+              {selectedState && selectedCounty
+                ? 'Ready to submit once required fields are filled.'
+                : 'Select a state and county to enable generation.'}
+            </div>
+          </div>
+        }
+      >
+        {errorBanner && <div className="warning-banner">{errorBanner}</div>}
+
+        <div className="panel space-y-3">
+          <div className="panel-title">Geography</div>
+          <div className="control">
+            <label className="control-label">State</label>
             <div className="relative">
               <input
                 value={stateQuery}
@@ -431,9 +445,7 @@ export function MoveODPage({ baseMapStyle = 'light', onAnalyze }: MoveODPageProp
                   if (!stateDropdownOpen) setStateDropdownOpen(true);
                   if (event.key === 'ArrowDown') {
                     event.preventDefault();
-                    setStateActiveIndex((prev) =>
-                      Math.min(stateOptions.length - 1, prev + 1)
-                    );
+                    setStateActiveIndex((prev) => Math.min(stateOptions.length - 1, prev + 1));
                   }
                   if (event.key === 'ArrowUp') {
                     event.preventDefault();
@@ -451,19 +463,19 @@ export function MoveODPage({ baseMapStyle = 'light', onAnalyze }: MoveODPageProp
                 onFocus={() => setStateDropdownOpen(true)}
                 onBlur={() => window.setTimeout(() => setStateDropdownOpen(false), 150)}
                 placeholder="Search for a state"
-                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                className="control-input"
               />
               {stateDropdownOpen && (
-                <div className="absolute z-30 mt-1 w-full rounded-lg border border-slate-200 bg-white shadow-lg">
+                <div className="absolute z-30 mt-2 w-full dropdown">
                   <div className="max-h-60 overflow-y-auto py-1">
                     {loadingStateSearch && (
-                      <div className="px-3 py-2 text-xs text-slate-500">Loading states…</div>
+                      <div className="px-3 py-2 text-xs text-muted">Loading states…</div>
                     )}
                     {!loadingStateSearch && stateOptions.length === 0 && stateQueryDebounced.trim().length >= 2 && (
-                      <div className="px-3 py-2 text-xs text-slate-500">No matches</div>
+                      <div className="px-3 py-2 text-xs text-muted">No matches</div>
                     )}
                     {!loadingStateSearch && stateOptions.length === 0 && stateQueryDebounced.trim().length < 2 && (
-                      <div className="px-3 py-2 text-xs text-slate-500">Type at least 2 characters</div>
+                      <div className="px-3 py-2 text-xs text-muted">Type at least 2 characters</div>
                     )}
                     {stateOptions.map((state, index) => (
                       <button
@@ -474,9 +486,8 @@ export function MoveODPage({ baseMapStyle = 'light', onAnalyze }: MoveODPageProp
                           event.preventDefault();
                           handleStateSelect(state);
                         }}
-                        className={`w-full px-3 py-2 text-left text-sm hover:bg-slate-50 ${
-                          index === stateActiveIndex ? 'bg-slate-100' : ''
-                        }`}
+                        data-active={index === stateActiveIndex}
+                        className="dropdown-option"
                       >
                         {formatStateLabel(state)}
                       </button>
@@ -487,8 +498,8 @@ export function MoveODPage({ baseMapStyle = 'light', onAnalyze }: MoveODPageProp
             </div>
           </div>
 
-          <div className="space-y-2">
-            <label className="text-xs font-semibold text-slate-600">County</label>
+          <div className="control">
+            <label className="control-label">County</label>
             <div className="relative">
               <input
                 value={countyQuery}
@@ -501,9 +512,7 @@ export function MoveODPage({ baseMapStyle = 'light', onAnalyze }: MoveODPageProp
                   if (!countyDropdownOpen) setCountyDropdownOpen(true);
                   if (event.key === 'ArrowDown') {
                     event.preventDefault();
-                    setCountyActiveIndex((prev) =>
-                      Math.min(countyOptions.length - 1, prev + 1)
-                    );
+                    setCountyActiveIndex((prev) => Math.min(countyOptions.length - 1, prev + 1));
                   }
                   if (event.key === 'ArrowUp') {
                     event.preventDefault();
@@ -522,12 +531,12 @@ export function MoveODPage({ baseMapStyle = 'light', onAnalyze }: MoveODPageProp
                 onBlur={() => window.setTimeout(() => setCountyDropdownOpen(false), 150)}
                 placeholder={selectedState ? 'Search for a county' : 'Select a state first'}
                 disabled={!selectedState}
-                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm disabled:bg-slate-100"
+                className="control-input"
               />
               {countyDropdownOpen && selectedState && (
-                <div className="absolute z-30 mt-1 w-full rounded-lg border border-slate-200 bg-white shadow-lg">
+                <div className="absolute z-30 mt-2 w-full dropdown">
                   {countyQuery && (
-                    <div className="flex items-center justify-between border-b border-slate-100 px-3 py-2 text-xs text-slate-500">
+                    <div className="flex items-center justify-between border-b border-default px-3 py-2 text-xs text-muted">
                       <span>Filtered results</span>
                       <button
                         type="button"
@@ -535,7 +544,7 @@ export function MoveODPage({ baseMapStyle = 'light', onAnalyze }: MoveODPageProp
                           event.preventDefault();
                           setCountyQuery('');
                         }}
-                        className="text-xs font-medium text-slate-600 hover:text-slate-800"
+                        className="btn btn-ghost"
                       >
                         Clear
                       </button>
@@ -543,10 +552,10 @@ export function MoveODPage({ baseMapStyle = 'light', onAnalyze }: MoveODPageProp
                   )}
                   <div className="max-h-60 overflow-y-auto py-1">
                     {showCountyLoading && (
-                      <div className="px-3 py-2 text-xs text-slate-500">Loading counties…</div>
+                      <div className="px-3 py-2 text-xs text-muted">Loading counties…</div>
                     )}
                     {!showCountyLoading && countyOptions.length === 0 && (
-                      <div className="px-3 py-2 text-xs text-slate-500">No matches</div>
+                      <div className="px-3 py-2 text-xs text-muted">No matches</div>
                     )}
                     {!showCountyLoading && countyOptions.map((county, index) => (
                       <button
@@ -557,9 +566,8 @@ export function MoveODPage({ baseMapStyle = 'light', onAnalyze }: MoveODPageProp
                           event.preventDefault();
                           handleCountySelect(county);
                         }}
-                        className={`w-full px-3 py-2 text-left text-sm hover:bg-slate-50 ${
-                          index === countyActiveIndex ? 'bg-slate-100' : ''
-                        }`}
+                        data-active={index === countyActiveIndex}
+                        className="dropdown-option"
                       >
                         {formatCountyLabel(county)}
                       </button>
@@ -569,37 +577,41 @@ export function MoveODPage({ baseMapStyle = 'light', onAnalyze }: MoveODPageProp
               )}
             </div>
           </div>
+        </div>
 
+        <div className="panel space-y-3">
+          <div className="panel-title">Temporal Filters</div>
           <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs font-semibold text-slate-600">Start Date</label>
+            <div className="control">
+              <label className="control-label">Start Date</label>
               <input
                 type="date"
                 value={formatDateInput(dateRange.start)}
                 onChange={(e) => setDateRange((prev) => ({ ...prev, start: parseDateInput(e.target.value) }))}
-                className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                className="control-input"
               />
             </div>
-            <div>
-              <label className="text-xs font-semibold text-slate-600">End Date</label>
+            <div className="control">
+              <label className="control-label">End Date</label>
               <input
                 type="date"
                 value={formatDateInput(dateRange.end)}
                 onChange={(e) => setDateRange((prev) => ({ ...prev, end: parseDateInput(e.target.value) }))}
-                className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                className="control-input"
               />
             </div>
           </div>
-          {!dateRangeValid && (
-            <div className="text-xs text-rose-600">Select both start and end dates.</div>
-          )}
+          {!dateRangeValid && <div className="warning-banner">Select both start and end dates.</div>}
+        </div>
 
-          <div>
-            <label className="text-xs font-semibold text-slate-600">LODES Data Year</label>
+        <div className="panel space-y-3">
+          <div className="panel-title">Data Sources</div>
+          <div className="control">
+            <label className="control-label">LODES Data Year</label>
             <select
               value={lodesYear}
               onChange={(e) => setLodesYear(e.target.value ? Number(e.target.value) : '')}
-              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+              className="control-select"
             >
               <option value="">Select year</option>
               {years.map((year) => (
@@ -610,12 +622,12 @@ export function MoveODPage({ baseMapStyle = 'light', onAnalyze }: MoveODPageProp
             </select>
           </div>
 
-          <div>
-            <label className="text-xs font-semibold text-slate-600">TIGER Shapefile Year</label>
+          <div className="control">
+            <label className="control-label">TIGER Shapefile Year</label>
             <select
               value={tigerYear}
               onChange={(e) => setTigerYear(e.target.value ? Number(e.target.value) : '')}
-              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+              className="control-select"
             >
               <option value="">Select year</option>
               {years.map((year) => (
@@ -625,83 +637,56 @@ export function MoveODPage({ baseMapStyle = 'light', onAnalyze }: MoveODPageProp
               ))}
             </select>
           </div>
+        </div>
 
-          <div>
-            <label className="text-xs font-semibold text-slate-600">INRIX Data Path</label>
+        <div className="panel space-y-3">
+          <div className="panel-title">Paths</div>
+          <div className="control">
+            <label className="control-label">INRIX Data Path</label>
             <input
               value={inrixDataPath}
               onChange={(e) => setInrixDataPath(e.target.value)}
               placeholder="/data/inrix/raw"
-              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+              className="control-input"
             />
           </div>
-
-          <div>
-            <label className="text-xs font-semibold text-slate-600">INRIX Conversion Path</label>
+          <div className="control">
+            <label className="control-label">INRIX Conversion Path</label>
             <input
               value={inrixConversionPath}
               onChange={(e) => setInrixConversionPath(e.target.value)}
               placeholder="/data/inrix/converted"
-              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+              className="control-input"
             />
           </div>
-
-          <label className="flex items-center gap-2 text-xs text-slate-700">
+          <label className="control-row">
+            <span>Use Global Buildings Footprint</span>
             <input
               type="checkbox"
               checked={useGlobalBuildingsFootprint}
               onChange={(e) => setUseGlobalBuildingsFootprint(e.target.checked)}
-              className="h-4 w-4 rounded border-slate-300"
+              className="h-4 w-4"
             />
-            Use Global Buildings Footprint
           </label>
+        </div>
 
-          <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 space-y-2">
-            <div className="text-[11px] font-semibold text-slate-600">Map Layers</div>
-            <label className="flex items-center gap-2 text-xs text-slate-700">
-              <input
-                type="checkbox"
-                checked={showStatesLayer}
-                onChange={(e) => setShowStatesLayer(e.target.checked)}
-                className="h-4 w-4 rounded border-slate-300"
-              />
-              Show state geometries
-            </label>
-            <label className="flex items-center gap-2 text-xs text-slate-700">
-              <input
-                type="checkbox"
-                checked={showCountiesLayer}
-                onChange={(e) => setShowCountiesLayer(e.target.checked)}
-                className="h-4 w-4 rounded border-slate-300"
-              />
-              Show county geometries
-            </label>
-            <label className="flex items-center gap-2 text-xs text-slate-700">
-              <input
-                type="checkbox"
-                checked={showGeometryFill}
-                onChange={(e) => setShowGeometryFill(e.target.checked)}
-                className="h-4 w-4 rounded border-slate-300"
-              />
-              Fill polygons
-            </label>
-          </div>
-
-          <label className="flex items-center gap-2 text-xs text-slate-700">
+        <div className="panel space-y-3">
+          <div className="panel-title">Existing Demand</div>
+          <label className="control-row">
+            <span>Show existing OD data</span>
             <input
               type="checkbox"
               checked={showExistingDemand}
               onChange={(e) => setShowExistingDemand(e.target.checked)}
               disabled={!hasExistingDemand}
-              className="h-4 w-4 rounded border-slate-300 disabled:opacity-50"
+              className="h-4 w-4"
             />
-            Show previously generated existing OD data?
           </label>
           {showExistingDemand && hasExistingDemand && (
-            <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 space-y-2">
-              <div className="flex items-center justify-between">
+            <div className="space-y-2">
+              <div className="table-row">
                 <span>Visible points</span>
-                <span className="font-semibold text-slate-700">
+                <span>
                   {visibleDemandPointsCount} / {totalDemandPoints}
                 </span>
               </div>
@@ -713,57 +698,38 @@ export function MoveODPage({ baseMapStyle = 'light', onAnalyze }: MoveODPageProp
                 onChange={(e) => setDemandVisibilityPercent(Number(e.target.value))}
                 className="w-full"
               />
-              <div className="flex items-center justify-between text-[11px] text-slate-500">
+              <div className="flex items-center justify-between text-xs text-muted">
                 <span>0%</span>
                 <span>{demandVisibilityPercent}%</span>
                 <span>100%</span>
               </div>
               {analysisSelection && onAnalyze && (
-                <button
-                  type="button"
-                  onClick={() => onAnalyze(analysisSelection)}
-                  className="w-full rounded-md bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700"
-                >
+                <button type="button" onClick={() => onAnalyze(analysisSelection)} className="btn btn-outline w-full">
                   Open Analysis
                 </button>
               )}
             </div>
           )}
           {loadingSyntheticDemand && selectedState && selectedCounty && (
-            <div className="text-xs text-slate-500">Checking existing OD data…</div>
+            <div className="control-hint">Checking existing OD data…</div>
           )}
           {!loadingSyntheticDemand && selectedState && selectedCounty && !hasExistingDemand && (
-            <div className="text-xs text-slate-500">No existing OD data found.</div>
+            <div className="control-hint">No existing OD data found.</div>
           )}
-
-          <div>
-            <label className="text-xs font-semibold text-slate-600">Output Path</label>
-            <input
-              value={outputPath}
-              onChange={(e) => setOutputPath(e.target.value)}
-              placeholder="/outputs/moveod"
-              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
-            />
-          </div>
         </div>
-        <div className="border-t px-4 py-3">
-          <button
-            type="button"
-            onClick={handleGenerate}
-            disabled={!generateEnabled}
-            className="w-full rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:bg-slate-300 disabled:cursor-not-allowed"
-          >
-            Generate
-          </button>
-          <div className="mt-2 text-xs text-slate-500">
-            {selectedState && selectedCounty
-              ? 'Ready to submit once required fields are filled.'
-              : 'Select a state and county to enable generation.'}
-          </div>
-        </div>
-      </div>
 
-      <div className="flex-1 min-w-0 min-h-0 relative">
+        <div className="panel space-y-2">
+          <div className="panel-title">Output</div>
+          <input
+            value={outputPath}
+            onChange={(e) => setOutputPath(e.target.value)}
+            placeholder="/outputs/moveod"
+            className="control-input"
+          />
+        </div>
+      </SidebarShell>
+
+      <div className="map-panel">
         <MoveODMap
           baseMapStyle={baseMapStyle}
           statesGeoJSON={statesLayer}
@@ -777,19 +743,17 @@ export function MoveODPage({ baseMapStyle = 'light', onAnalyze }: MoveODPageProp
           onCountyClick={handleMapCountyClick}
         />
         {loadingStatesGeometry && (
-          <div className="absolute inset-0 z-20 flex items-center justify-center bg-white/70 backdrop-blur-sm">
-            <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm text-slate-600 shadow-lg">
-              <span className="inline-flex h-4 w-4 animate-spin rounded-full border-2 border-slate-300 border-t-blue-600" />
+          <div className="absolute inset-0 z-20 flex items-center justify-center overlay-scrim">
+            <div className="floating-card flex items-center gap-2 text-sm">
+              <span className="inline-flex h-4 w-4 animate-spin rounded-full border-2 border-slate-300 border-t-emerald-500" />
               Loading states…
             </div>
           </div>
         )}
         {(loadingCountiesBase || loadingSelectedCountyGeometry || loadingCountyGeometryList) && !loadingStatesGeometry && (
-          <div className="absolute bottom-4 right-4 rounded-lg border border-slate-200 bg-white/90 px-3 py-2 text-xs text-slate-600 shadow">
+          <div className="absolute bottom-4 right-4 floating-card text-xs">
             {loadingSelectedCountyGeometry
               ? 'Loading county geometry…'
-              : loadingCountyGeometryList
-              ? 'Loading counties layer…'
               : 'Loading counties layer…'}
           </div>
         )}

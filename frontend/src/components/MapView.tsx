@@ -402,9 +402,9 @@ export function MapView({
       // Bind popup if description exists
       if (marker.description) {
         markerInstance.bindPopup(`
-          <div class="px-3 py-2 bg-white rounded-md min-w-[200px]">
-            <h3 class="font-bold text-sm mb-1 capitalize text-gray-900">${marker.type}</h3>
-            <p class="text-sm text-gray-600 leading-relaxed">${marker.description}</p>
+          <div class="popup-card">
+            <h3>${marker.type}</h3>
+            <p>${marker.description}</p>
           </div>
         `, {
           className: 'custom-popup',

@@ -78,18 +78,18 @@ export function ItineraryDrawer({
   if (!open) return null;
 
   return (
-    <div className="h-full w-full border-l bg-white shadow-xl flex flex-col overflow-hidden min-w-0">
+    <div className="h-full w-full side-panel flex flex-col overflow-hidden min-w-0">
       {/* Fixed header */}
-      <div className="flex items-center justify-between border-b px-4 py-3 shrink-0">
+      <div className="flex items-center justify-between border-b border-default px-4 py-3 shrink-0">
         <div>
           <div className="text-sm font-semibold">Itineraries</div>
-          <div className="text-xs text-gray-500">
+          <div className="text-xs text-muted">
             {modeLabel ? `${modeLabel} plan` : 'Trip plan'}
           </div>
         </div>
         <button
           onClick={() => onOpenChange(false)}
-          className="rounded-md p-2 text-gray-500 hover:bg-gray-100"
+          className="btn btn-ghost"
           title="Close"
         >
           <X size={18} />
@@ -99,7 +99,7 @@ export function ItineraryDrawer({
       {/* Scrollable content */}
       <div className="flex-1 overflow-y-auto px-4 py-3">
         {itineraries.length === 0 ? (
-          <div className="text-sm text-gray-500">No itineraries returned.</div>
+          <div className="text-sm text-muted">No itineraries returned.</div>
         ) : (
           <Accordion
             key={`${bestItineraryId ?? 'none'}-${itineraries.length}`}
@@ -130,14 +130,10 @@ export function ItineraryDrawer({
                     <div className="flex flex-col gap-1 w-full pr-2">
                       <div className="flex items-center gap-2">
                         <span className="font-medium">Itinerary {index + 1}</span>
-                        {isBest && (
-                          <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700">
-                            Best
-                          </span>
-                        )}
+                        {isBest && <span className="control-chip">Best</span>}
                       </div>
                       {score && (
-                        <div className="text-xs text-gray-500">
+                        <div className="text-xs text-muted">
                           Score: {formatValue(score.score)} · {formatValue(score.total_minutes)} min · {formatValue(score.walk_meters)} m walk
                         </div>
                       )}
@@ -146,7 +142,7 @@ export function ItineraryDrawer({
                   <AccordionContent>
                     <div className="space-y-2">
                       {legs.length === 0 ? (
-                        <div className="text-sm text-gray-500">No legs.</div>
+                        <div className="text-sm text-muted">No legs.</div>
                       ) : (
                         legs.map((leg, legIndex) => {
                           const legKey = `${itineraryId}-leg-${legIndex}`;
@@ -163,50 +159,47 @@ export function ItineraryDrawer({
                                   onSelectLeg?.(leg);
                                 }
                               }}
-                              className={`w-full rounded-lg border p-3 text-left transition-colors ${
-                                isHighlighted
-                                  ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-300'
-                                  : 'border-gray-200 hover:border-blue-300 hover:bg-blue-50'
-                              }`}
+                              className="w-full text-left panel-item"
+                              data-active={isHighlighted}
                             >
                               <div className="flex items-center justify-between">
-                                <div className="text-sm font-semibold text-gray-800">
+                                <div className="text-sm font-semibold">
                                   Leg {legIndex + 1} · {formatValue((leg as any)?.mode)}
                                 </div>
                               </div>
-                              <div className="mt-2 space-y-1.5 text-xs text-gray-600">
+                              <div className="mt-2 space-y-1.5 text-xs text-muted">
                                 <div>
-                                  <div className="uppercase tracking-wide text-[10px] text-gray-400">From</div>
-                                  <div className="text-gray-700 truncate">
+                                  <div className="uppercase tracking-wide text-xs text-muted">From</div>
+                                  <div className="truncate">
                                     {truncateAddress((leg as any)?.from_address ?? (leg as any)?.from_stop_id ?? '—')}
                                   </div>
                                   {(leg as any)?.from_coords && (
-                                    <div className="text-[10px] text-gray-400">
+                                    <div className="text-xs text-muted">
                                       {formatCoord((leg as any).from_coords.lat)}, {formatCoord((leg as any).from_coords.lon)}
                                     </div>
                                   )}
                                 </div>
                                 <div>
-                                  <div className="uppercase tracking-wide text-[10px] text-gray-400">To</div>
-                                  <div className="text-gray-700 truncate">
+                                  <div className="uppercase tracking-wide text-xs text-muted">To</div>
+                                  <div className="truncate">
                                     {truncateAddress((leg as any)?.to_address ?? (leg as any)?.to_stop_id ?? '—')}
                                   </div>
                                   {(leg as any)?.to_coords && (
-                                    <div className="text-[10px] text-gray-400">
+                                    <div className="text-xs text-muted">
                                       {formatCoord((leg as any).to_coords.lat)}, {formatCoord((leg as any).to_coords.lon)}
                                     </div>
                                   )}
                                 </div>
                                 <div className="grid grid-cols-2 gap-2 pt-1">
                                   <div>
-                                    <div className="uppercase tracking-wide text-[10px] text-gray-400">Distance</div>
-                                    <div className="text-gray-700">
+                                    <div className="uppercase tracking-wide text-xs text-muted">Distance</div>
+                                    <div>
                                       {formatValue((leg as any)?.distance_m)} m
                                     </div>
                                   </div>
                                   <div>
-                                    <div className="uppercase tracking-wide text-[10px] text-gray-400">Duration</div>
-                                    <div className="text-gray-700">
+                                    <div className="uppercase tracking-wide text-xs text-muted">Duration</div>
+                                    <div>
                                       {formatValue((leg as any)?.duration_s)} s
                                     </div>
                                   </div>

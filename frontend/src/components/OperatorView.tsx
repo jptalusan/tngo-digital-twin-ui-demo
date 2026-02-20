@@ -1,7 +1,8 @@
 import { useState, useRef } from 'react';
-import { Car, Bus, Plus, Trash2, Upload, PlayCircle, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, RotateCcw } from 'lucide-react';
+import { Car, Bus, Plus, Trash2, Upload, PlayCircle, ChevronDown, ChevronUp, RotateCcw } from 'lucide-react';
 import { apiService } from '../services/api';
 import { buildUrl } from '../services/http';
+import { SidebarShell } from './SidebarShell';
 
 export interface Depot {
   id: string;
@@ -211,377 +212,326 @@ export function OperatorView({
   }
 
   return (
-    <div className={`${isCollapsed ? 'w-16' : 'w-96'} h-full bg-white border-r transition-all duration-300 relative flex flex-col`}>
+    <div className="relative h-full">
       {demandUploading && (
-        <div className="absolute inset-0 z-20 flex items-center justify-center bg-white/80 backdrop-blur-sm">
-          <div className="rounded-lg border bg-white px-6 py-4 text-sm font-medium text-gray-700 shadow-lg">
+        <div className="absolute inset-0 z-20 flex items-center justify-center overlay-scrim">
+          <div className="floating-card text-sm font-medium">
             Uploading demand data...
           </div>
         </div>
       )}
-      {/* Collapse Button */}
-      <div className={`flex items-center ${isCollapsed ? 'justify-center py-4' : 'justify-between p-4'} border-b`}>
-        {!isCollapsed && <h2 className="text-lg font-semibold truncate">Operator Config</h2>}
-        <button
-          onClick={() => setIsCollapsed(!isCollapsed)}
-          className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-          title={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-        >
-          {isCollapsed ? <ChevronRight size={20} /> : <ChevronLeft size={20} />}
-        </button>
-      </div>
 
-      {/* Collapsed State - Clickable Tab */}
-      {isCollapsed && (
-        <div 
-          onClick={() => setIsCollapsed(false)}
-          className="flex-1 w-full hover:bg-gray-50 cursor-pointer flex items-center justify-center"
-        >
-          <div className="transform -rotate-90 text-sm font-medium text-gray-600 whitespace-nowrap">
-            Operator
+      <SidebarShell
+        title="Operator View"
+        subtitle="Service modes, depots, and evaluation"
+        collapsible
+        collapsed={isCollapsed}
+        onToggleCollapse={() => setIsCollapsed(!isCollapsed)}
+        collapsedLabel="Operator"
+        headerAction={evaluating ? <span className="control-chip">Evaluating</span> : undefined}
+        footer={
+          <div className="space-y-3">
+            <button
+              onClick={onEvaluate}
+              disabled={evaluating}
+              className="btn btn-primary w-full"
+            >
+              <PlayCircle size={16} />
+              <span>{evaluating ? 'Evaluating...' : 'Evaluate'}</span>
+            </button>
+            <button onClick={onReset} className="btn btn-outline w-full">
+              <RotateCcw size={16} />
+              <span>Reset Configuration</span>
+            </button>
+          </div>
+        }
+      >
+        <div className="panel space-y-4">
+          <div className="panel-title">Demand Model</div>
+          <select
+            value={selectedDemandModelId}
+            onChange={(e) => onDemandModelChange(e.target.value)}
+            className="control-select"
+            disabled={demandModels.length === 0}
+          >
+            {demandModels.map((model) => (
+              <option key={model.id} value={model.id}>
+                {model.label}
+              </option>
+            ))}
+          </select>
+          <div>
+            <div className="flex items-center justify-between text-xs text-muted mb-2">
+              <span>Sample</span>
+              <span>{demandSamplePercent}%</span>
+            </div>
+            <input
+              type="range"
+              min={0}
+              max={100}
+              value={demandSamplePercent}
+              onChange={(e) => onDemandSampleChange(parseInt(e.target.value) || 0)}
+              className="w-full"
+            />
+          </div>
+          <div>
+            <input
+              ref={demandFileInputRef}
+              type="file"
+              className="hidden"
+              onChange={(e) => handleDemandFileSelected(e.target.files?.[0] ?? null)}
+            />
+            <button
+              onClick={() => demandFileInputRef.current?.click()}
+              disabled={demandUploading}
+              className="btn btn-outline w-full"
+            >
+              <Upload size={16} />
+              <span>{demandUploading ? 'Uploading...' : 'Upload Demand Data'}</span>
+            </button>
           </div>
         </div>
-      )}
 
-      {/* Main Content */}
-      {!isCollapsed && (
-        <>
-          <div className="p-6 w-full flex-1 overflow-y-auto">
+        <div className="panel space-y-2">
+          <div className="panel-title">Map Overlays</div>
+          <label className="control-row">
+            <span>Show Service Hex Grid</span>
+            <input
+              type="checkbox"
+              checked={showDepotHexes}
+              onChange={(e) => onToggleDepotHexes(e.target.checked)}
+              className="h-4 w-4"
+            />
+          </label>
+          <div className="control-hint">Hex grid always shows during depot selection.</div>
+        </div>
 
+        <div className="panel space-y-3">
+          <div className="panel-title">Service Modes</div>
+          <button
+            onClick={() => toggleMode('on-demand')}
+            className="btn btn-outline w-full justify-start"
+            data-active={selectedModes.has('on-demand')}
+          >
+            <Car size={16} />
+            <span>On-Demand</span>
+          </button>
+          <button
+            onClick={() => toggleMode('bus')}
+            className="btn btn-outline w-full justify-start"
+            data-active={selectedModes.has('bus')}
+          >
+            <Bus size={16} />
+            <span>Bus (Fixed Line)</span>
+          </button>
+        </div>
 
-            {/* Demand Models */}
-            <div className="mb-6">
-              <label className="block text-sm mb-3">Demand Model</label>
+        {selectedModes.has('on-demand') && (
+          <div className="panel space-y-3">
+            <button
+              onClick={() => setOnDemandExpanded(!onDemandExpanded)}
+              className="panel-title w-full"
+              type="button"
+            >
+              <span>On-Demand Configuration</span>
+              {onDemandExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+            </button>
+            {onDemandExpanded && (
               <div className="space-y-3">
-                <select
-                  value={selectedDemandModelId}
-                  onChange={(e) => onDemandModelChange(e.target.value)}
-                  className="w-full px-3 py-2 border rounded-lg bg-white"
-                  disabled={demandModels.length === 0}
-                >
-                  {demandModels.map((model) => (
-                    <option key={model.id} value={model.id}>
-                      {model.label}
-                    </option>
-                  ))}
-                </select>
-                <div>
-                  <div className="flex items-center justify-between text-xs text-gray-600 mb-2">
-                    <span>Sample</span>
-                    <span>
-                      {demandSamplePercent}%
-                    </span>
-                  </div>
+                <div className="control">
+                  <label className="control-label">Vehicles per Depot</label>
                   <input
-                    type="range"
-                    min={0}
-                    max={100}
-                    value={demandSamplePercent}
-                    onChange={(e) => onDemandSampleChange(parseInt(e.target.value) || 0)}
-                    className="w-full"
+                    type="number"
+                    value={newDepotVehicles}
+                    onChange={(e) => setNewDepotVehicles(parseInt(e.target.value) || 0)}
+                    className="control-input"
+                    min="1"
                   />
                 </div>
-                <div>
+                <div className="control">
+                  <label className="control-label">Vehicle Capacity</label>
                   <input
-                    ref={demandFileInputRef}
-                    type="file"
-                    className="hidden"
-                    onChange={(e) => handleDemandFileSelected(e.target.files?.[0] ?? null)}
+                    type="number"
+                    value={newDepotCapacity}
+                    onChange={(e) => setNewDepotCapacity(parseInt(e.target.value) || 0)}
+                    className="control-input"
+                    min="1"
                   />
+                </div>
+                <button
+                  onClick={handleAddDepotClick}
+                  disabled={depotWizardActive}
+                  className="btn btn-primary w-full"
+                >
+                  <Plus size={16} />
+                  <span>{depotWizardActive ? 'Adding Depot...' : 'Add Depot'}</span>
+                </button>
+
+                {depots.length > 0 && (
+                  <div className="space-y-2">
+                    <div className="panel-subtitle">Depots ({depots.length})</div>
+                    {depots.map((depot, index) => (
+                      <div key={depot.id} className="control-row">
+                        <span>
+                          Depot {index + 1}: {depot.vehicles} vehicles (cap: {depot.capacity})
+                        </span>
+                        <button
+                          onClick={() => onRemoveDepot(depot.id)}
+                          className="btn btn-ghost"
+                          type="button"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {selectedModes.has('bus') && (
+          <div className="panel space-y-3">
+            <button
+              onClick={() => setBusExpanded(!busExpanded)}
+              className="panel-title w-full"
+              type="button"
+            >
+              <span>Fixed Line Configuration</span>
+              {busExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+            </button>
+            {busExpanded && (
+              <div className="space-y-3">
+                <div className="grid grid-cols-2 gap-2">
                   <button
-                    onClick={() => demandFileInputRef.current?.click()}
-                    disabled={demandUploading}
-                    className="w-full flex items-center justify-center gap-2 px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-70"
+                    onClick={() => setGtfsMode(false)}
+                    className="btn btn-outline w-full"
+                    data-active={!gtfsMode}
                   >
-                    <Upload size={16} />
-                    <span>{demandUploading ? 'Uploading...' : 'Upload Demand Data'}</span>
+                    Custom Routes
+                  </button>
+                  <button
+                    onClick={() => setGtfsMode(true)}
+                    className="btn btn-outline w-full"
+                    data-active={gtfsMode}
+                  >
+                    Upload GTFS
                   </button>
                 </div>
-              </div>
-            </div>
 
-            {/* Map Overlays */}
-            <div className="mb-6">
-              <label className="block text-sm mb-3">Map Overlays</label>
-              <label className="flex items-center justify-between rounded-lg border px-3 py-2 text-sm text-gray-700">
-                <span>Show Service Hex Grid</span>
-                <input
-                  type="checkbox"
-                  checked={showDepotHexes}
-                  onChange={(e) => onToggleDepotHexes(e.target.checked)}
-                  className="h-4 w-4"
-                />
-              </label>
-              <div className="mt-2 text-xs text-gray-500">
-                Hex grid always shows during depot selection.
-              </div>
-            </div>
-
-            {/* Mode Selection */}
-            <div className="mb-6">
-              <label className="block text-sm mb-3">Add Service Modes</label>
-              <div className="space-y-3">
-                <button
-                  onClick={() => toggleMode('on-demand')}
-                  className={`w-full flex items-center gap-2 px-4 py-3 rounded-lg border-2 transition-colors ${
-                    selectedModes.has('on-demand')
-                      ? 'border-blue-500 bg-blue-50 text-blue-700'
-                      : 'border-gray-300 hover:border-gray-400'
-                  }`}
-                >
-                  <Car size={20} />
-                  <span>On-Demand</span>
-                </button>
-
-                <button
-                  onClick={() => toggleMode('bus')}
-                  className={`w-full flex items-center gap-2 px-4 py-3 rounded-lg border-2 transition-colors ${
-                    selectedModes.has('bus')
-                      ? 'border-blue-500 bg-blue-50 text-blue-700'
-                      : 'border-gray-300 hover:border-gray-400'
-                  }`}
-                >
-                  <Bus size={20} />
-                  <span>Bus (Fixed Line)</span>
-                </button>
-              </div>
-            </div>
-
-            {/* On-Demand Configuration */}
-            {selectedModes.has('on-demand') && (
-              <div className="mb-6 border rounded-lg">
-                <button
-                  onClick={() => setOnDemandExpanded(!onDemandExpanded)}
-                  className="w-full px-4 py-3 bg-gray-50 hover:bg-gray-100 flex items-center justify-between transition-colors rounded-t-lg"
-                >
-                  <h3 className="font-medium">On-Demand Configuration</h3>
-                  {onDemandExpanded ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
-                </button>
-                
-                {onDemandExpanded && (
-                  <div className="p-4">
-                    <div className="mb-4">
-                      <label className="block text-sm mb-2">Vehicles per Depot</label>
-                      <input
-                        type="number"
-                        value={newDepotVehicles}
-                        onChange={(e) => setNewDepotVehicles(parseInt(e.target.value) || 0)}
-                        className="w-full px-3 py-2 border rounded-lg"
-                        min="1"
-                      />
+                {gtfsMode ? (
+                  <div className="control-row flex-col items-start">
+                    <div className="flex items-center gap-2">
+                      <Upload size={20} />
+                      <span className="text-sm font-semibold">Upload GTFS File</span>
                     </div>
-
-                    <div className="mb-4">
-                      <label className="block text-sm mb-2">Vehicle Capacity</label>
-                      <input
-                        type="number"
-                        value={newDepotCapacity}
-                        onChange={(e) => setNewDepotCapacity(parseInt(e.target.value) || 0)}
-                        className="w-full px-3 py-2 border rounded-lg"
-                        min="1"
-                      />
-                    </div>
-
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept=".zip,application/zip"
+                      className="hidden"
+                      onChange={(e) => handleGtfsFileSelected(e.target.files?.[0] ?? null)}
+                    />
                     <button
-                      onClick={handleAddDepotClick}
-                      disabled={depotWizardActive}
-                      className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={gtfsUploading}
+                      className="btn btn-primary w-full"
                     >
-                      <Plus size={20} />
-                      <span>{depotWizardActive ? 'Adding Depot...' : 'Add Depot'}</span>
+                      {gtfsUploading ? 'Uploading...' : 'Choose File'}
+                    </button>
+                    {gtfsError && <div className="warning-banner w-full">{gtfsError}</div>}
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    <button onClick={addBusRoute} className="btn btn-primary w-full">
+                      <Plus size={16} />
+                      <span>Add Route</span>
                     </button>
 
-                    {depots.length > 0 && (
-                      <div className="mt-4 space-y-2">
-                        <div className="text-sm mb-2">Depots ({depots.length})</div>
-                        {depots.map((depot, index) => (
-                          <div key={depot.id} className="flex items-center justify-between p-2 bg-gray-50 rounded">
-                            <span className="text-sm">
-                              Depot {index + 1}: {depot.vehicles} vehicles (cap: {depot.capacity})
-                            </span>
+                    <div className="space-y-3">
+                      {busRoutes.map((route) => (
+                        <div key={route.id} className="control-row flex-col items-start gap-3">
+                          <div className="flex w-full items-center justify-between">
+                            <span className="text-sm font-semibold">Route Configuration</span>
                             <button
-                              onClick={() => onRemoveDepot(depot.id)}
-                              className="text-red-600 hover:text-red-700"
+                              onClick={() => removeBusRoute(route.id)}
+                              className="btn btn-ghost"
+                              type="button"
                             >
                               <Trash2 size={16} />
                             </button>
                           </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
 
-            {/* Bus Configuration */}
-            {selectedModes.has('bus') && (
-              <div className="mb-6 border rounded-lg">
-                <button
-                  onClick={() => setBusExpanded(!busExpanded)}
-                  className="w-full px-4 py-3 bg-gray-50 hover:bg-gray-100 flex items-center justify-between transition-colors rounded-t-lg"
-                >
-                  <h3 className="font-medium">Fixed Line Configuration</h3>
-                  {busExpanded ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
-                </button>
+                          <div className="grid w-full gap-2">
+                            <input
+                              type="text"
+                              placeholder="Origin"
+                              value={route.origin}
+                              onChange={(e) => updateBusRoute(route.id, { origin: e.target.value })}
+                              className="control-input"
+                            />
+                            <input
+                              type="text"
+                              placeholder="Destination"
+                              value={route.destination}
+                              onChange={(e) => updateBusRoute(route.id, { destination: e.target.value })}
+                              className="control-input"
+                            />
+                          </div>
 
-                {busExpanded && (
-                  <div className="p-4">
-                    <div className="mb-4 flex gap-2">
-                      <button
-                        onClick={() => setGtfsMode(false)}
-                        className={`flex-1 px-4 py-2 rounded-lg border-2 ${
-                          !gtfsMode ? 'border-blue-500 bg-blue-50' : 'border-gray-300'
-                        }`}
-                      >
-                        Custom Routes
-                      </button>
-                      <button
-                        onClick={() => setGtfsMode(true)}
-                        className={`flex-1 px-4 py-2 rounded-lg border-2 ${
-                          gtfsMode ? 'border-blue-500 bg-blue-50' : 'border-gray-300'
-                        }`}
-                      >
-                        Upload GTFS
-                      </button>
-                    </div>
-
-                    {gtfsMode ? (
-                      <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
-                        <Upload size={32} className="mx-auto mb-2 text-gray-400" />
-                        <p className="text-sm text-gray-600 mb-3">Upload GTFS File</p>
-                        <input
-                          ref={fileInputRef}
-                          type="file"
-                          accept=".zip,application/zip"
-                          className="hidden"
-                          onChange={(e) => handleGtfsFileSelected(e.target.files?.[0] ?? null)}
-                        />
-                        <button
-                          onClick={() => fileInputRef.current?.click()}
-                          disabled={gtfsUploading}
-                          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
-                        >
-                          {gtfsUploading ? 'Uploading...' : 'Choose File'}
-                        </button>
-                        {gtfsError && (
-                          <div className="mt-3 text-xs text-red-600">{gtfsError}</div>
-                        )}
-                      </div>
-                    ) : (
-                      <div>
-                        <button
-                          onClick={addBusRoute}
-                          className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 mb-4"
-                        >
-                          <Plus size={20} />
-                          <span>Add Route</span>
-                        </button>
-
-                        <div className="space-y-3">
-                          {busRoutes.map((route) => (
-                            <div key={route.id} className="border rounded-lg p-3">
-                              <div className="flex items-center justify-between mb-3">
-                                <span className="text-sm">Route Configuration</span>
-                                <button
-                                  onClick={() => removeBusRoute(route.id)}
-                                  className="text-red-600 hover:text-red-700"
-                                >
-                                  <Trash2 size={16} />
-                                </button>
-                              </div>
-
-                              <div className="space-y-2">
-                                <input
-                                  type="text"
-                                  placeholder="Origin"
-                                  value={route.origin}
-                                  onChange={(e) => updateBusRoute(route.id, { origin: e.target.value })}
-                                  className="w-full px-3 py-2 text-sm border rounded"
-                                />
-                                <input
-                                  type="text"
-                                  placeholder="Destination"
-                                  value={route.destination}
-                                  onChange={(e) => updateBusRoute(route.id, { destination: e.target.value })}
-                                  className="w-full px-3 py-2 text-sm border rounded"
-                                />
-                                
-                                <div className="grid grid-cols-3 gap-2">
-                                  <div>
-                                    <label className="text-xs text-gray-600">Buses</label>
-                                    <input
-                                      type="number"
-                                      value={route.buses}
-                                      onChange={(e) => updateBusRoute(route.id, { buses: parseInt(e.target.value) || 0 })}
-                                      className="w-full px-2 py-1 text-sm border rounded"
-                                      min="1"
-                                    />
-                                  </div>
-                                  <div>
-                                    <label className="text-xs text-gray-600">Capacity</label>
-                                    <input
-                                      type="number"
-                                      value={route.capacity}
-                                      onChange={(e) => updateBusRoute(route.id, { capacity: parseInt(e.target.value) || 0 })}
-                                      className="w-full px-2 py-1 text-sm border rounded"
-                                      min="1"
-                                    />
-                                  </div>
-                                  <div>
-                                    <label className="text-xs text-gray-600">Freq (min)</label>
-                                    <input
-                                      type="number"
-                                      value={route.frequency}
-                                      onChange={(e) => updateBusRoute(route.id, { frequency: parseInt(e.target.value) || 0 })}
-                                      className="w-full px-2 py-1 text-sm border rounded"
-                                      min="1"
-                                    />
-                                  </div>
-                                </div>
-
-                                <label className="flex items-center gap-2 text-sm">
-                                  <input
-                                    type="checkbox"
-                                    checked={route.roundTrip}
-                                    onChange={(e) => updateBusRoute(route.id, { roundTrip: e.target.checked })}
-                                    className="w-4 h-4"
-                                  />
-                                  <span>Round Trip</span>
-                                </label>
-                              </div>
+                          <div className="grid w-full grid-cols-3 gap-2">
+                            <div className="control">
+                              <label className="control-label">Buses</label>
+                              <input
+                                type="number"
+                                value={route.buses}
+                                onChange={(e) => updateBusRoute(route.id, { buses: parseInt(e.target.value) || 0 })}
+                                className="control-input"
+                                min="1"
+                              />
                             </div>
-                          ))}
+                            <div className="control">
+                              <label className="control-label">Capacity</label>
+                              <input
+                                type="number"
+                                value={route.capacity}
+                                onChange={(e) => updateBusRoute(route.id, { capacity: parseInt(e.target.value) || 0 })}
+                                className="control-input"
+                                min="1"
+                              />
+                            </div>
+                            <div className="control">
+                              <label className="control-label">Freq (min)</label>
+                              <input
+                                type="number"
+                                value={route.frequency}
+                                onChange={(e) => updateBusRoute(route.id, { frequency: parseInt(e.target.value) || 0 })}
+                                className="control-input"
+                                min="1"
+                              />
+                            </div>
+                          </div>
+
+                          <label className="control-row w-full">
+                            <span>Round Trip</span>
+                            <input
+                              type="checkbox"
+                              checked={route.roundTrip}
+                              onChange={(e) => updateBusRoute(route.id, { roundTrip: e.target.checked })}
+                              className="h-4 w-4"
+                            />
+                          </label>
                         </div>
-                      </div>
-                    )}
+                      ))}
+                    </div>
                   </div>
                 )}
               </div>
             )}
-
           </div>
-          {/* Actions */}
-          <div className="border-t bg-white px-6 py-4 space-y-3">
-            <button
-              onClick={onEvaluate}
-              disabled={evaluating}
-              className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
-            >
-              <PlayCircle size={20} />
-              <span>{evaluating ? 'Evaluating...' : 'Evaluate'}</span>
-            </button>
-
-            <button
-              onClick={onReset}
-              className="w-full flex items-center justify-center gap-2 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100 transition-colors"
-            >
-              <RotateCcw size={18} />
-              <span>Reset Configuration</span>
-            </button>
-          </div>
-        </>
-      )}
+        )}
+      </SidebarShell>
     </div>
   );
 }

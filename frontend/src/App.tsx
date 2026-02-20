@@ -15,7 +15,8 @@ import { apiService, AutocompleteResult, Route, EvaluationResponse } from './ser
 import { buildUrl } from './services/http';
 import { ResponsiveContainer, LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip } from 'recharts';
 import * as h3 from 'h3-js';
-import { Menu } from 'lucide-react';
+import { Moon, Sun } from 'lucide-react';
+import { useTheme } from 'next-themes';
 import { useAnalysisJobs } from './state/analysisJobs';
 import type { AnalysisJob } from './state/analysisJobs';
 
@@ -27,7 +28,8 @@ export default function App() {
   const [moveodAnalysisSelection, setMoveodAnalysisSelection] = useState<MoveODAnalysisSelection | null>(null);
   const { jobs } = useAnalysisJobs();
   const jobStatusRef = useRef<Map<string, string>>(new Map());
-  const [viewMenuOpen, setViewMenuOpen] = useState(false);
+  const { theme, setTheme } = useTheme();
+  const resolvedTheme = theme ?? 'light';
   const [origin, setOrigin] = useState<AutocompleteResult | null>(null);
   const [destination, setDestination] = useState<AutocompleteResult | null>(null);
   const [routes, setRoutes] = useState<Route[]>([]);
@@ -46,7 +48,13 @@ export default function App() {
   const [itineraries, setItineraries] = useState<any[]>([]);
   const [itineraryMode, setItineraryMode] = useState<string>('');
   const [selectedItineraryId, setSelectedItineraryId] = useState<string | null>(null);
-  const [baseMapStyle, setBaseMapStyle] = useState<'standard' | 'light'>('light');
+  const [baseMapStyle] = useState<'standard' | 'light'>('light');
+  const viewOptions = [
+    { id: 'moveod', label: 'MoveOD' },
+    { id: 'moveod-analysis', label: 'MoveOD Analysis' },
+    { id: 'passenger', label: 'Passenger' },
+    { id: 'operator', label: 'Operator' }
+  ] as const;
 
   const handleJobNavigate = useCallback(
     (job: AnalysisJob) => {
@@ -987,65 +995,53 @@ export default function App() {
 
 
   const MapLoadingOverlay = () => (
-    <div className="absolute inset-0 z-[1000] flex items-center justify-center bg-white/70 backdrop-blur-sm">
-      <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white/90 px-4 py-3 shadow-lg">
-        <span className="inline-flex h-5 w-5 animate-spin rounded-full border-2 border-slate-300 border-t-blue-600" />
-        <span className="text-sm font-medium text-slate-700">{loadingLabel}</span>
+    <div className="absolute inset-0 z-[1000] flex items-center justify-center overlay-scrim">
+      <div className="floating-card flex items-center gap-3">
+        <span className="inline-flex h-5 w-5 animate-spin rounded-full border-2 border-slate-300 border-t-emerald-500" />
+        <span className="text-sm font-medium">{loadingLabel}</span>
       </div>
     </div>
   );
 
   return (
-    <div className="h-screen flex flex-col">
+    <div className="app-shell">
       <Toaster richColors position="top-right" />
       {/* Top Bar */}
-      <div className="relative z-[2000] h-16 bg-white border-b flex items-center justify-between px-6">
-        <h1 className="text-2xl">Transit Planner</h1>
+      <div className="app-header">
+        <div>
+          <div className="app-title">Transit Research Suite</div>
+          <div className="app-subtitle">MoveOD and service simulation workspace</div>
+        </div>
         <div className="flex items-center gap-3">
-          <div className="relative z-[2100]">
-            <button
-              onClick={() => setViewMenuOpen((prev) => !prev)}
-              className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50"
-              type="button"
-            >
-              <Menu className="h-4 w-4" />
-              Views
-            </button>
-            {viewMenuOpen && (
-              <div className="absolute right-0 z-[2200] mt-2 w-48 rounded-xl border border-slate-200 bg-white shadow-xl">
-                {(
-                  [
-                    { id: 'passenger', label: 'Passenger View' },
-                    { id: 'operator', label: 'Operator View' },
-                    { id: 'moveod', label: 'MoveOD' },
-                    { id: 'moveod-analysis', label: 'MoveOD Analysis' }
-                  ] as const
-                ).map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => {
-                      handleViewModeChange(item.id);
-                      setViewMenuOpen(false);
-                    }}
-                    className={`w-full px-3 py-2 text-left text-sm transition ${
-                      viewMode === item.id
-                        ? 'bg-blue-50 text-blue-700'
-                        : 'text-slate-600 hover:bg-slate-50'
-                    }`}
-                  >
-                    {item.label}
-                  </button>
-                ))}
-              </div>
-            )}
+          <div className="segmented" role="tablist" aria-label="Active view">
+            {viewOptions.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                data-active={viewMode === item.id}
+                onClick={() => handleViewModeChange(item.id)}
+                role="tab"
+                aria-selected={viewMode === item.id}
+              >
+                {item.label}
+              </button>
+            ))}
           </div>
+          <button
+            type="button"
+            className="btn btn-ghost"
+            onClick={() => setTheme(resolvedTheme === 'dark' ? 'light' : 'dark')}
+            title="Toggle night view"
+          >
+            {resolvedTheme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
+            <span className="text-xs">{resolvedTheme === 'dark' ? 'Day' : 'Night'}</span>
+          </button>
           <AnalysisJobNotifications onNavigate={handleJobNavigate} />
         </div>
       </div>
 
       {/* Main Content */}
-      <div className="flex-1 flex min-h-0 overflow-hidden relative">
+      <div className="app-main">
         {viewMode === 'moveod' ? (
           <MoveODPage
             baseMapStyle={baseMapStyle}
@@ -1095,8 +1091,8 @@ export default function App() {
 
             {/* Map + Itinerary Panel */}
             {viewMode === 'passenger' ? (
-              <div className="flex flex-1 min-h-0 min-w-0">
-                <div className="relative flex-1 min-h-0 min-w-0">
+              <div className="flex flex-1 min-h-0 min-w-0 gap-4 p-4">
+                <div className="map-panel">
                   <MapView
                     markers={markers}
                     routes={routePolylines}
@@ -1111,11 +1107,15 @@ export default function App() {
                   />
                   {mapLoading && <MapLoadingOverlay />}
                 </div>
-                {(itineraryDrawerOpen || itineraries.length > 0) && (
-                  <div
-                    className="h-full shrink-0 border-l bg-white shadow-xl"
-                    style={{ width: '30vw', maxWidth: '30vw', minWidth: '30vw' }}
-                  >
+                <div
+                  className="h-full shrink-0 side-panel"
+                  style={{
+                    width: itineraryDrawerOpen ? '30vw' : '52px',
+                    maxWidth: itineraryDrawerOpen ? '30vw' : '52px',
+                    minWidth: itineraryDrawerOpen ? '30vw' : '52px'
+                  }}
+                >
+                  {itineraryDrawerOpen ? (
                     <ItineraryDrawer
                       open
                       onOpenChange={setItineraryDrawerOpen}
@@ -1134,13 +1134,22 @@ export default function App() {
                       }}
                       modeLabel={itineraryMode}
                     />
-                  </div>
-                )}
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setItineraryDrawerOpen(true)}
+                      className="h-full w-full btn btn-ghost"
+                      title="Expand itineraries"
+                    >
+                      <span className="sidebar-collapsed-label">Itineraries</span>
+                    </button>
+                  )}
+                </div>
               </div>
             ) : (
-              <div className="flex flex-1 min-h-0 min-w-0">
-                <div className="relative flex-1 min-h-0 min-w-0 flex flex-col">
-                  <div className="relative flex-1 min-h-0 min-w-0">
+              <div className="flex flex-1 min-h-0 min-w-0 p-4">
+                <div className="flex-1 min-h-0 min-w-0 flex flex-col gap-4">
+                  <div className="map-panel">
                     <MapView
                       markers={markers}
                       routes={routePolylines}
@@ -1170,9 +1179,9 @@ export default function App() {
                         {evaluationResult && (
                           <MapLegend items={legendItems} onToggle={handleLegendToggle} />
                         )}
-                        <div className="absolute top-4 right-4 w-48 rounded-lg border border-slate-200 bg-white/95 p-3 shadow-lg">
-                          <div className="text-xs font-semibold text-slate-700 mb-2">Map Legend</div>
-                          <div className="space-y-2 text-xs text-slate-600">
+                        <div className="absolute top-4 right-4 w-52 floating-card">
+                          <div className="text-xs font-semibold mb-2">Map Legend</div>
+                          <div className="space-y-2 text-xs text-muted">
                             <div className="flex items-center gap-2">
                               <span className="inline-block h-2 w-2 rounded-full bg-blue-400" />
                               <span>Demand Home</span>
@@ -1211,11 +1220,11 @@ export default function App() {
                     </div>
                   </div>
                   {depotWizardOpen && (
-                <div className="shrink-0 border-t border-slate-200 bg-white shadow-[0_-10px_30px_rgba(0,0,0,0.08)]">
+                <div className="shrink-0 panel">
                   <div className="mx-auto w-full max-w-[900px]">
-                    <div className="border-b px-4 py-3">
-                      <div className="text-sm font-semibold text-slate-800">Add Depot</div>
-                      <div className="text-xs text-slate-500">
+                    <div className="border-b border-default px-4 py-3">
+                      <div className="text-sm font-semibold">Add Depot</div>
+                      <div className="text-xs text-muted">
                         {depotWizardStep === 'pick-location' && 'Step 1 of 3: Pick location'}
                         {depotWizardStep === 'select-zone' && 'Step 2 of 3: Select service zone'}
                         {depotWizardStep === 'vehicles' && 'Step 3 of 3: Vehicles & capacity'}
@@ -1224,25 +1233,25 @@ export default function App() {
 
                     {depotWizardStep === 'pick-location' && (
                       <div className="px-4 py-4 space-y-3">
-                        <div className="text-sm text-slate-700">
+                        <div className="text-sm text-strong">
                           Pick a spot on the map to place the depot.
                         </div>
-                        <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                        <div className="control-row text-xs">
                           {draftDepotLocation
                             ? `${draftDepotLocation.address ?? formatCoordinates(draftDepotLocation.coords)}`
                             : 'No location selected yet.'}
-                          {depotGeocoding && <span className="ml-2 text-slate-400">Looking up address...</span>}
+                          {depotGeocoding && <span className="ml-2 text-muted">Looking up address...</span>}
                         </div>
                       </div>
                     )}
 
                     {depotWizardStep === 'select-zone' && (
                       <div className="px-4 py-4 space-y-3">
-                        <div className="text-sm text-slate-700">
+                        <div className="text-sm text-strong">
                           Select contiguous hexagons for the service zone.
                         </div>
-                        <div className="text-xs text-slate-600">
-                          Selected hexes: <span className="font-semibold text-slate-800">{draftDepotHexes.length}</span>
+                        <div className="text-xs text-muted">
+                          Selected hexes: <span className="font-semibold text-strong">{draftDepotHexes.length}</span>
                         </div>
                         {depotZoneError && (
                           <div className="text-xs text-red-600">{depotZoneError}</div>
@@ -1252,38 +1261,38 @@ export default function App() {
 
                     {depotWizardStep === 'vehicles' && (
                       <div className="px-4 py-4 space-y-4">
-                        <div className="text-sm text-slate-700">
+                        <div className="text-sm text-strong">
                           Set a homogeneous fleet size and capacity for this depot.
                         </div>
                         <div className="space-y-3">
                           <div>
-                            <label className="block text-xs text-slate-600 mb-1">Vehicles</label>
+                            <label className="block text-xs text-muted mb-1">Vehicles</label>
                             <input
                               type="number"
                               min={1}
                               value={draftDepotVehicles}
                               onChange={(e) => setDraftDepotVehicles(parseInt(e.target.value) || 0)}
-                              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                              className="control-input"
                             />
                           </div>
                           <div>
-                            <label className="block text-xs text-slate-600 mb-1">Vehicle Capacity</label>
+                            <label className="block text-xs text-muted mb-1">Vehicle Capacity</label>
                             <input
                               type="number"
                               min={1}
                               value={draftDepotCapacity}
                               onChange={(e) => setDraftDepotCapacity(parseInt(e.target.value) || 0)}
-                              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                              className="control-input"
                             />
                           </div>
                         </div>
                       </div>
                     )}
 
-                    <div className="border-t px-4 py-3 flex items-center justify-between">
+                    <div className="border-t border-default px-4 py-3 flex items-center justify-between">
                       <button
                         onClick={closeDepotWizard}
-                        className="text-sm text-slate-600 hover:text-slate-800"
+                        className="btn btn-ghost"
                       >
                         Cancel
                       </button>
@@ -1297,7 +1306,7 @@ export default function App() {
                                 setDepotWizardStep('select-zone');
                               }
                             }}
-                            className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50"
+                            className="btn btn-outline"
                           >
                             Back
                           </button>
@@ -1306,7 +1315,7 @@ export default function App() {
                           <button
                             onClick={() => setDepotWizardStep('select-zone')}
                             disabled={!draftDepotLocation}
-                            className="rounded-lg bg-blue-600 px-3 py-1.5 text-sm text-white hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed"
+                            className="btn btn-primary"
                           >
                             Next
                           </button>
@@ -1325,7 +1334,7 @@ export default function App() {
                               setDepotZoneError(null);
                               setDepotWizardStep('vehicles');
                             }}
-                            className="rounded-lg bg-blue-600 px-3 py-1.5 text-sm text-white hover:bg-blue-700"
+                            className="btn btn-primary"
                           >
                             Done
                           </button>
@@ -1333,7 +1342,7 @@ export default function App() {
                         {depotWizardStep === 'vehicles' && (
                           <button
                             onClick={handleSaveDepot}
-                            className="rounded-lg bg-green-600 px-3 py-1.5 text-sm text-white hover:bg-green-700"
+                            className="btn btn-primary"
                           >
                             Save Depot
                           </button>
@@ -1346,7 +1355,7 @@ export default function App() {
             </div>
             {(depots.length > 0 || gtfsUploads.length > 0 || showEvaluationPanel) && (
               <div
-                className="h-full shrink-0 border-l bg-white shadow-xl flex flex-col"
+                className="h-full shrink-0 side-panel flex flex-col"
                 style={{
                   width: '26vw',
                   maxWidth: '26vw',
@@ -1355,7 +1364,7 @@ export default function App() {
                 }}
               >
                 <div className="h-full flex flex-col overflow-y-auto">
-                  <div className="px-4 py-3 border-b text-sm font-semibold text-slate-700">Depots</div>
+                  <div className="px-4 py-3 border-b border-default text-sm font-semibold">Depots</div>
                   <div className="p-4 space-y-3">
                     {depots.map((depot, index) => (
                       <button
@@ -1368,27 +1377,24 @@ export default function App() {
                               : [...prev, depot.id]
                           )
                         }
-                        className={`w-full text-left rounded-lg border p-3 transition-colors ${
-                          selectedDepotIds.includes(depot.id)
-                            ? 'border-blue-500 bg-blue-50'
-                            : 'border-slate-200 hover:border-slate-300'
-                        }`}
+                        className="w-full text-left panel-item"
+                        data-active={selectedDepotIds.includes(depot.id)}
                       >
-                        <div className="text-sm font-semibold text-slate-800">
+                        <div className="text-sm font-semibold">
                           Depot {index + 1}
                         </div>
-                        <div className="text-xs text-slate-500 mt-1">
+                        <div className="text-xs text-muted mt-1">
                           {depot.address ?? formatCoordinates(depot.coordinates)}
                         </div>
-                        <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-slate-600">
+                        <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-muted">
                           <div>
-                            <span className="font-medium text-slate-700">Vehicles:</span> {depot.vehicles}
+                            <span className="font-medium text-strong">Vehicles:</span> {depot.vehicles}
                           </div>
                           <div>
-                            <span className="font-medium text-slate-700">Capacity:</span> {depot.capacity}
+                            <span className="font-medium text-strong">Capacity:</span> {depot.capacity}
                           </div>
                           <div className="col-span-2">
-                            <span className="font-medium text-slate-700">Service Hexes:</span>{' '}
+                            <span className="font-medium text-strong">Service Hexes:</span>{' '}
                             {depot.serviceZoneHexes?.length ?? 0}
                           </div>
                         </div>
@@ -1396,8 +1402,8 @@ export default function App() {
                     ))}
                   </div>
                 {gtfsUploads.length > 0 && (
-                  <div className="border-t border-slate-200">
-                    <div className="px-4 py-3 text-sm font-semibold text-slate-700">GTFS</div>
+                  <div className="border-t border-default">
+                    <div className="px-4 py-3 text-sm font-semibold">GTFS</div>
                     <div className="px-4 pb-4 space-y-2">
                       {gtfsUploads.map((upload) => (
                         <button
@@ -1448,17 +1454,14 @@ export default function App() {
                               setGtfsPreviewLoadingId(null);
                             }
                           }}
-                          className={`w-full text-left rounded-lg border p-3 text-xs transition-colors ${
-                            gtfsPreview?.gtfs_id === upload.gtfs_id
-                              ? 'border-orange-400 bg-orange-50'
-                              : 'border-slate-200 hover:border-slate-300'
-                          }`}
+                          className="w-full text-left panel-item text-xs"
+                          data-active={gtfsPreview?.gtfs_id === upload.gtfs_id}
                         >
-                          <div className="font-semibold text-slate-800">{upload.gtfs_name}</div>
+                          <div className="font-semibold">{upload.gtfs_name}</div>
                           <div className="mt-1">GTFS ID: {upload.gtfs_id}</div>
                           <div className="mt-1">Status: {upload.status}</div>
                           {gtfsPreviewLoadingId === upload.gtfs_id && (
-                            <div className="mt-2 text-xs text-slate-500">Loading preview…</div>
+                            <div className="mt-2 text-xs text-muted">Loading preview…</div>
                           )}
                         </button>
                       ))}
@@ -1466,31 +1469,31 @@ export default function App() {
                   </div>
                 )}
                 {showEvaluationPanel && (
-                  <div className="border-t border-slate-200 bg-white">
-                    <div className="px-4 py-3 text-sm font-semibold text-slate-700">Evaluation</div>
+                  <div className="border-t border-default">
+                    <div className="px-4 py-3 text-sm font-semibold">Evaluation</div>
                     <div className="px-4 pb-4 space-y-4">
-                      <div className="rounded-lg border border-slate-200 p-3">
-                        <div className="text-xs font-semibold text-slate-600">Ridership</div>
+                      <div className="panel-item">
+                        <div className="text-xs font-semibold text-muted">Ridership</div>
                         <div className="mt-2" style={{ width: '100%', height: 140 }}>
                           <ResponsiveContainer width="100%" height="100%">
                             <LineChart data={ridershipSeries} margin={{ top: 5, right: 5, left: 0, bottom: 0 }}>
                               <XAxis dataKey="name" tick={{ fontSize: 10 }} />
                               <YAxis tick={{ fontSize: 10 }} width={30} />
                               <Tooltip />
-                              <Line type="monotone" dataKey="value" stroke="#2563eb" strokeWidth={2} dot={false} />
+                              <Line type="monotone" dataKey="value" stroke="var(--chart-1)" strokeWidth={2} dot={false} />
                             </LineChart>
                           </ResponsiveContainer>
                         </div>
                       </div>
-                      <div className="rounded-lg border border-slate-200 p-3">
-                        <div className="text-xs font-semibold text-slate-600">Total Cost</div>
+                      <div className="panel-item">
+                        <div className="text-xs font-semibold text-muted">Total Cost</div>
                         <div className="mt-2" style={{ width: '100%', height: 140 }}>
                           <ResponsiveContainer width="100%" height="100%">
                             <BarChart data={costSeries} margin={{ top: 5, right: 5, left: 0, bottom: 0 }}>
                               <XAxis dataKey="name" tick={{ fontSize: 10 }} />
                               <YAxis tick={{ fontSize: 10 }} width={30} />
                               <Tooltip />
-                              <Bar dataKey="value" fill="#0f766e" radius={[4, 4, 0, 0]} />
+                              <Bar dataKey="value" fill="var(--chart-2)" radius={[4, 4, 0, 0]} />
                             </BarChart>
                           </ResponsiveContainer>
                         </div>
@@ -1499,7 +1502,7 @@ export default function App() {
                   </div>
                 )}
                 {depotWizardOpen && (
-                  <div className="border-t border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-600">
+                  <div className="border-t border-default px-4 py-3 text-xs text-muted">
                     Wizard active — drawer pinned above.
                   </div>
                 )}
