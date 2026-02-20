@@ -177,23 +177,7 @@ export function OperatorView({
     setBusRoutes(updatedRoutes);
     onBusRouteUpdate(updatedRoutes);
 
-    // If origin and destination are both set, fetch geometry
-    const updatedRoute = updatedRoutes.find(r => r.id === id);
-    if (updatedRoute && updatedRoute.origin && updatedRoute.destination) {
-      try {
-        const geometry = await apiService.getBusRouteGeometry({
-          origin: updatedRoute.origin,
-          destination: updatedRoute.destination
-        });
-        const routesWithGeometry = updatedRoutes.map(route =>
-          route.id === id ? { ...route, geometry: geometry.geometry } : route
-        );
-        setBusRoutes(routesWithGeometry);
-        onBusRouteUpdate(routesWithGeometry);
-      } catch (error) {
-        console.error('Error fetching route geometry:', error);
-      }
-    }
+    // Geometry fetch removed (was calling /api/bus/geometry)
   };
 
   const removeBusRoute = (id: string) => {

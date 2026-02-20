@@ -562,31 +562,12 @@ export default function App() {
   const mapLayers = useMemo(() => {
     const layers: MapLayer[] = [];
     if (evaluationResult && viewMode === 'operator') {
-      const coverageLayer = legendItems.find(item => item.id === 'coverage');
       const heatmapLayer = legendItems.find(item => item.id === 'heatmap');
-      const boundaryLayer = legendItems.find(item => item.id === 'boundary');
-
-      if (coverageLayer?.visible) {
-        layers.push({
-          id: 'coverage',
-          type: 'polygon',
-          data: evaluationResult.coverageArea,
-          visible: true
-        });
-      }
       if (heatmapLayer?.visible) {
         layers.push({
           id: 'heatmap',
           type: 'heatmap',
           data: evaluationResult.heatmapData,
-          visible: true
-        });
-      }
-      if (boundaryLayer?.visible) {
-        layers.push({
-          id: 'boundary',
-          type: 'boundary',
-          data: evaluationResult.serviceBoundaries,
           visible: true
         });
       }
@@ -974,30 +955,10 @@ export default function App() {
 
   const handleEvaluate = async () => {
     setShowEvaluationPanel(true);
-    setEvaluating(true);
-    try {
-      const result = await apiService.evaluate({
-        modes: [
-          {
-            type: 'on-demand',
-            config: { depots }
-          }
-        ]
-      });
-      setEvaluationResult(result);
-      setShowEvaluationDrawer(true);
-      
-      // Initialize legend items
-      setLegendItems([
-        { id: 'coverage', label: 'Coverage Area', color: '#10b981', visible: true },
-        { id: 'heatmap', label: 'Demand Heatmap', color: '#ef4444', visible: true },
-        { id: 'boundary', label: 'Service Boundaries', color: '#3b82f6', visible: true }
-      ]);
-    } catch (error) {
-      console.error('Evaluation error:', error);
-    } finally {
-      setEvaluating(false);
-    }
+    setEvaluating(false);
+    setEvaluationResult(null);
+    setShowEvaluationDrawer(false);
+    setLegendItems([]);
   };
 
   const handleLegendToggle = (id: string) => {
