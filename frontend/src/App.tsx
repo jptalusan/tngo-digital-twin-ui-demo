@@ -15,6 +15,7 @@ import { apiService, AutocompleteResult, Route, EvaluationResponse } from './ser
 import { buildUrl } from './services/http';
 import { ResponsiveContainer, LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip } from 'recharts';
 import * as h3 from 'h3-js';
+import { Menu } from 'lucide-react';
 import { useAnalysisJobs } from './state/analysisJobs';
 import type { AnalysisJob } from './state/analysisJobs';
 
@@ -26,6 +27,7 @@ export default function App() {
   const [moveodAnalysisSelection, setMoveodAnalysisSelection] = useState<MoveODAnalysisSelection | null>(null);
   const { jobs } = useAnalysisJobs();
   const jobStatusRef = useRef<Map<string, string>>(new Map());
+  const [viewMenuOpen, setViewMenuOpen] = useState(false);
   const [origin, setOrigin] = useState<AutocompleteResult | null>(null);
   const [destination, setDestination] = useState<AutocompleteResult | null>(null);
   const [routes, setRoutes] = useState<Route[]>([]);
@@ -997,74 +999,48 @@ export default function App() {
     <div className="h-screen flex flex-col">
       <Toaster richColors position="top-right" />
       {/* Top Bar */}
-      <div className="h-16 bg-white border-b flex items-center justify-between px-6">
+      <div className="relative z-[2000] h-16 bg-white border-b flex items-center justify-between px-6">
+        <h1 className="text-2xl">Transit Planner</h1>
         <div className="flex items-center gap-3">
-          <AnalysisJobNotifications onNavigate={handleJobNavigate} />
-          <h1 className="text-2xl">Transit Planner</h1>
-        </div>
-        <div className="flex gap-3">
-          <div className="flex gap-2">
+          <div className="relative z-[2100]">
             <button
-              onClick={() => setBaseMapStyle('standard')}
-              className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                baseMapStyle === 'standard'
-                  ? 'bg-slate-900 text-white'
-                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-              }`}
+              onClick={() => setViewMenuOpen((prev) => !prev)}
+              className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50"
+              type="button"
             >
-              Standard Map
+              <Menu className="h-4 w-4" />
+              Views
             </button>
-            <button
-              onClick={() => setBaseMapStyle('light')}
-              className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                baseMapStyle === 'light'
-                  ? 'bg-slate-900 text-white'
-                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-              }`}
-            >
-              Light (No Labels)
-            </button>
+            {viewMenuOpen && (
+              <div className="absolute right-0 z-[2200] mt-2 w-48 rounded-xl border border-slate-200 bg-white shadow-xl">
+                {(
+                  [
+                    { id: 'passenger', label: 'Passenger View' },
+                    { id: 'operator', label: 'Operator View' },
+                    { id: 'moveod', label: 'MoveOD' },
+                    { id: 'moveod-analysis', label: 'MoveOD Analysis' }
+                  ] as const
+                ).map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => {
+                      handleViewModeChange(item.id);
+                      setViewMenuOpen(false);
+                    }}
+                    className={`w-full px-3 py-2 text-left text-sm transition ${
+                      viewMode === item.id
+                        ? 'bg-blue-50 text-blue-700'
+                        : 'text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
-          <button
-            onClick={() => handleViewModeChange('passenger')}
-            className={`px-6 py-2 rounded-lg font-medium transition-colors ${
-              viewMode === 'passenger'
-                ? 'bg-blue-600 text-white'
-                : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-            }`}
-          >
-            Passenger View
-          </button>
-          <button
-            onClick={() => handleViewModeChange('operator')}
-            className={`px-6 py-2 rounded-lg font-medium transition-colors ${
-              viewMode === 'operator'
-                ? 'bg-blue-600 text-white'
-                : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-            }`}
-          >
-            Operator View
-          </button>
-          <button
-            onClick={() => handleViewModeChange('moveod')}
-            className={`px-6 py-2 rounded-lg font-medium transition-colors ${
-              viewMode === 'moveod'
-                ? 'bg-blue-600 text-white'
-                : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-            }`}
-          >
-            MoveOD
-          </button>
-          <button
-            onClick={() => handleViewModeChange('moveod-analysis')}
-            className={`px-6 py-2 rounded-lg font-medium transition-colors ${
-              viewMode === 'moveod-analysis'
-                ? 'bg-blue-600 text-white'
-                : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-            }`}
-          >
-            MoveOD Analysis
-          </button>
+          <AnalysisJobNotifications onNavigate={handleJobNavigate} />
         </div>
       </div>
 

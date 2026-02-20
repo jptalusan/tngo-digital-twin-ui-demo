@@ -1547,3 +1547,45 @@ html {
   syntax: "*";
   inherits: false
 }
+
+/* Leaflet layers toggle (icon-only control) */
+.leaflet-control-layers-toggle {
+  width: 30px;
+  height: 30px;
+  background: #fff;
+  border-radius: 6px;
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.2);
+  position: relative;
+}
+
+.leaflet-control-layers-toggle::after {
+  content: "Layers";
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 600;
+  color: #1f2937;
+}
+
+.leaflet-control-layers {
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid #e2e8f0;
+}
+
+/* Force Leaflet layers below app chrome */
+.leaflet-container {
+  z-index: 0;
+}
+
+.leaflet-pane {
+  z-index: 0;
+}
+
+.leaflet-top,
+.leaflet-bottom {
+  z-index: 100;
+}

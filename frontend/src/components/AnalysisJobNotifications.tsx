@@ -13,7 +13,7 @@ const formatTime = (timestamp: number) => {
 };
 
 export function AnalysisJobNotifications({ onNavigate }: AnalysisJobNotificationsProps) {
-  const { jobs, markRead } = useAnalysisJobs();
+  const { jobs, markRead, markAllRead } = useAnalysisJobs();
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
@@ -45,20 +45,33 @@ export function AnalysisJobNotifications({ onNavigate }: AnalysisJobNotification
   };
 
   return (
-    <div className="relative" ref={containerRef}>
+    <div className="relative z-[2100]" ref={containerRef}>
       <button
         type="button"
         onClick={() => setOpen((prev) => !prev)}
-        className="relative inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 shadow-sm transition hover:bg-slate-50"
+        className={`relative inline-flex h-9 w-9 items-center justify-center rounded-lg border shadow-sm transition ${
+          unread
+            ? 'border-rose-300 bg-rose-50 text-rose-600 hover:bg-rose-100'
+            : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+        }`}
         aria-label="Analysis notifications"
       >
         <Bell className="h-4 w-4" />
         {unread && <span className="absolute -right-1 -top-1 h-3 w-3 rounded-full bg-rose-500" />}
       </button>
       {open && (
-        <div className="absolute left-0 z-50 mt-2 w-72 rounded-xl border border-slate-200 bg-white shadow-xl">
-          <div className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-            Analysis Jobs
+        <div className="absolute right-0 z-[2200] mt-2 w-72 rounded-xl border border-slate-200 bg-white shadow-xl">
+          <div className="flex items-center justify-between px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+            <span>Analysis Jobs</span>
+            {unread && (
+              <button
+                type="button"
+                onClick={() => markAllRead()}
+                className="text-[10px] font-semibold text-rose-500 hover:text-rose-600"
+              >
+                Mark all read
+              </button>
+            )}
           </div>
           <div className="max-h-80 overflow-auto">
             {recentJobs.length === 0 ? (

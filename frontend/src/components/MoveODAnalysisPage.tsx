@@ -346,6 +346,29 @@ export function MoveODAnalysisPage({ selection, baseMapStyle = 'light' }: MoveOD
     setSelectedCountyGeoid(selection.county_geoid);
   }, [selection]);
 
+  useEffect(() => {
+    if (!activeSelection) return;
+    setActiveView('map-default');
+    setData(null);
+    setAvailability({
+      originHeat: false,
+      destinationHeat: false,
+      departureBins: false,
+      arrivalBins: false,
+      travelTimeBins: false,
+      topOrigins: false,
+      flowBalance: false
+    });
+    setOriginPoints([]);
+    setDestinationPoints([]);
+    setPointVisibilityPercent(100);
+    setShowOriginPoints(true);
+    setShowDestinationPoints(true);
+    setError(null);
+    setAnalyzing(false);
+    setJobId(null);
+  }, [activeSelection?.state_fips, activeSelection?.county_fips, activeSelection?.county_geoid]);
+
   const handleAnalyze = useCallback(async () => {
     if (!activeSelection) {
       setError('Select a state and county before analyzing.');
@@ -682,6 +705,11 @@ export function MoveODAnalysisPage({ selection, baseMapStyle = 'light' }: MoveOD
             <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
               {error}
             </div>
+          </div>
+        )}
+        {!loading && !error && !activeSelection && (
+          <div className="absolute inset-0 z-10 flex items-center justify-center text-sm font-semibold text-slate-500">
+            Select state and county to begin analysis.
           </div>
         )}
         {!loading && !error && activeSelection && activeView === 'heatmap-origin' && (

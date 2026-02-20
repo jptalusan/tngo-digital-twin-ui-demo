@@ -26,6 +26,7 @@ type AnalysisJobsContextValue = {
   jobs: AnalysisJob[];
   startJob: (jobId: string, selection?: MoveODAnalysisSelection) => void;
   markRead: (jobId: string) => void;
+  markAllRead: () => void;
 };
 
 const AnalysisJobsContext = createContext<AnalysisJobsContextValue | null>(null);
@@ -211,6 +212,14 @@ export function AnalysisJobsProvider({ children }: { children: ReactNode }) {
     upsertJob(jobId, { unread: false, updatedAt: getNow() });
   }, [upsertJob]);
 
+  const markAllRead = useCallback(() => {
+    setJobs((prev) =>
+      prev.map((job) =>
+        job.unread ? { ...job, unread: false, updatedAt: getNow() } : job
+      )
+    );
+  }, []);
+
   useEffect(() => {
     return () => {
       eventSourcesRef.current.forEach((source) => source.close());
@@ -224,9 +233,10 @@ export function AnalysisJobsProvider({ children }: { children: ReactNode }) {
     () => ({
       jobs,
       startJob,
-      markRead
+      markRead,
+      markAllRead
     }),
-    [jobs, markRead, startJob]
+    [jobs, markAllRead, markRead, startJob]
   );
 
   return <AnalysisJobsContext.Provider value={value}>{children}</AnalysisJobsContext.Provider>;

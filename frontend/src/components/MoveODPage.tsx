@@ -350,6 +350,40 @@ export function MoveODPage({ baseMapStyle = 'light', onAnalyze }: MoveODPageProp
     const visibleCount = Math.round(points.length * (clampedPercent / 100));
     return points.slice(0, visibleCount);
   }, [showExistingDemand, hasExistingDemand, syntheticDemandItems, demandVisibilityPercent]);
+
+  const syntheticOriginPoints = useMemo(() => {
+    if (!showExistingDemand || !hasExistingDemand) return [] as Array<[number, number]>;
+    const points: Array<[number, number]> = [];
+    syntheticDemandItems.forEach((item: any) => {
+      const origin = item?.origin_location;
+      if (origin?.type === 'Point' && Array.isArray(origin.coordinates)) {
+        const [lon, lat] = origin.coordinates;
+        if (Number.isFinite(lat) && Number.isFinite(lon)) {
+          points.push([lat, lon]);
+        }
+      }
+    });
+    const clampedPercent = Math.min(100, Math.max(0, demandVisibilityPercent));
+    const visibleCount = Math.round(points.length * (clampedPercent / 100));
+    return points.slice(0, visibleCount);
+  }, [showExistingDemand, hasExistingDemand, syntheticDemandItems, demandVisibilityPercent]);
+
+  const syntheticDestinationPoints = useMemo(() => {
+    if (!showExistingDemand || !hasExistingDemand) return [] as Array<[number, number]>;
+    const points: Array<[number, number]> = [];
+    syntheticDemandItems.forEach((item: any) => {
+      const dest = item?.destination_location;
+      if (dest?.type === 'Point' && Array.isArray(dest.coordinates)) {
+        const [lon, lat] = dest.coordinates;
+        if (Number.isFinite(lat) && Number.isFinite(lon)) {
+          points.push([lat, lon]);
+        }
+      }
+    });
+    const clampedPercent = Math.min(100, Math.max(0, demandVisibilityPercent));
+    const visibleCount = Math.round(points.length * (clampedPercent / 100));
+    return points.slice(0, visibleCount);
+  }, [showExistingDemand, hasExistingDemand, syntheticDemandItems, demandVisibilityPercent]);
   const totalDemandPoints = useMemo(() => {
     if (!hasExistingDemand) return 0;
     let total = 0;
@@ -359,7 +393,7 @@ export function MoveODPage({ baseMapStyle = 'light', onAnalyze }: MoveODPageProp
     });
     return total;
   }, [hasExistingDemand, syntheticDemandItems]);
-  const visibleDemandPointsCount = syntheticDemandPoints.length;
+  const visibleDemandPointsCount = syntheticOriginPoints.length + syntheticDestinationPoints.length;
 
   const statesLayer = showStatesLayer ? (statesGeoJSON as FeatureCollection | null) : null;
   const countiesLayer =
@@ -736,7 +770,8 @@ export function MoveODPage({ baseMapStyle = 'light', onAnalyze }: MoveODPageProp
           countiesGeoJSON={countiesLayer}
           selectedCountyGeoJSON={countyHighlight}
           highlightedStateFips={highlightedStateFips}
-          syntheticDemandPoints={syntheticDemandPoints}
+          syntheticOriginPoints={syntheticOriginPoints}
+          syntheticDestinationPoints={syntheticDestinationPoints}
           showFill={showGeometryFill}
           onStateClick={handleMapStateClick}
           onCountyClick={handleMapCountyClick}

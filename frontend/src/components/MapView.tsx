@@ -81,7 +81,8 @@ export function MapView({
   const highlightLayerRef = useRef<L.Polyline | null>(null);
   const layersGroupRef = useRef<L.LayerGroup | null>(null);
   const hexLayerRef = useRef<L.LayerGroup | null>(null);
-  const tileLayerRef = useRef<L.TileLayer | null>(null);
+  const baseLayersRef = useRef<Record<string, L.TileLayer> | null>(null);
+  const layerControlRef = useRef<L.Control.Layers | null>(null);
   const markerRendererRef = useRef<L.Renderer | null>(null);
   const lastBoundsRef = useRef<string>('');
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
@@ -101,13 +102,29 @@ export function MapView({
     }
 
     const standardLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
       attribution: '© OpenStreetMap contributors'
     });
+    const hotLayer = L.tileLayer('https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution:
+        '© OpenStreetMap contributors, Tiles style by Humanitarian OpenStreetMap Team hosted by OpenStreetMap France'
+    });
     const lightLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png', {
+      maxZoom: 19,
       attribution: '© OpenStreetMap contributors © CARTO'
     });
-    tileLayerRef.current = baseMapStyle === 'light' ? lightLayer : standardLayer;
-    tileLayerRef.current.addTo(map);
+
+    baseLayersRef.current = {
+      'OSM Standard': standardLayer,
+      'OSM Humanitarian': hotLayer,
+      'Light (No Labels)': lightLayer
+    };
+    const initialLayer = baseMapStyle === 'light' ? lightLayer : standardLayer;
+    initialLayer.addTo(map);
+    layerControlRef.current = L.control
+      .layers(baseLayersRef.current, undefined, { position: 'topright', collapsed: true })
+      .addTo(map);
 
     mapRef.current = map;
     markersLayerRef.current = L.layerGroup().addTo(map);
@@ -127,28 +144,12 @@ export function MapView({
     return () => {
       resizeObserverRef.current?.disconnect();
       resizeObserverRef.current = null;
+      layerControlRef.current?.remove();
+      layerControlRef.current = null;
       map.remove();
       mapRef.current = null;
     };
   }, []);
-
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map) return;
-    const nextLayer = baseMapStyle === 'light'
-      ? L.tileLayer('https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png', {
-          attribution: '© OpenStreetMap contributors © CARTO'
-        })
-      : L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-          attribution: '© OpenStreetMap contributors'
-        });
-
-    if (tileLayerRef.current) {
-      map.removeLayer(tileLayerRef.current);
-    }
-    tileLayerRef.current = nextLayer;
-    tileLayerRef.current.addTo(map);
-  }, [baseMapStyle]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -524,5 +525,5 @@ export function MapView({
     });
   }, [layers]);
 
-  return <div ref={mapContainerRef} className="w-full h-full" />;
+  return <div ref={mapContainerRef} className="w-full h-full relative z-0" />;
 }
