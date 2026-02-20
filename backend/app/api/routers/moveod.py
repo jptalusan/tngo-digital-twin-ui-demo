@@ -455,7 +455,12 @@ def get_available_demand_areas(
     session: Session = Depends(get_session),
 ) -> schemas.SearchListResponse:
     mapping = moveod_crud.list_available_demand_areas(session)
-    items = [{"state_fips": k, "county_fips": v} for k, v in mapping.items()]
+    # mapping is {state_fips: [county_fips, ...]} — flatten into one entry per pair
+    items = [
+        {"state_fips": sf, "county_fips": cf}
+        for sf, county_list in mapping.items()
+        for cf in county_list
+    ]
     message = "ok" if items else "no demand data"
     return schemas.SearchListResponse(items=items, message=message)
 

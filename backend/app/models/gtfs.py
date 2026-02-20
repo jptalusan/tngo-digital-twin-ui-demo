@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Optional
 
-from geoalchemy2 import Geometry
+from geoalchemy2 import Geometry, WKBElement
 from sqlalchemy import ForeignKey, String, Integer, Float, UniqueConstraint, DateTime, func, JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -18,7 +19,7 @@ class GtfsFeed(Base):
     gtfs_id: Mapped[str] = mapped_column(String, unique=True, index=True, nullable=False)
     gtfs_name: Mapped[str] = mapped_column(String, nullable=False)
     filename: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-    uploaded_at: Mapped[Optional[object]] = mapped_column(
+    uploaded_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=True
     )
 
@@ -36,10 +37,10 @@ class GtfsJob(Base):
     status: Mapped[str] = mapped_column(String, nullable=False, default="pending")
     error: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     row_counts: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
-    created_at: Mapped[Optional[object]] = mapped_column(
+    created_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=True
     )
-    updated_at: Mapped[Optional[object]] = mapped_column(
+    updated_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=True
     )
 
@@ -86,12 +87,18 @@ class Stop(Base):
     stop_id: Mapped[str] = mapped_column(String, index=True)
     name: Mapped[Optional[str]] = mapped_column(String, index=True, nullable=True)
     # PostGIS POINT(lon lat) SRID 4326
-    location: Mapped[Optional[object]] = mapped_column(
-        Geometry("POINT", srid=4326), nullable=True
+    location: Mapped[Optional[WKBElement]] = mapped_column(
+        Geometry("POINT", srid=4326, spatial_index=True), nullable=True
     )
 
 
 class Calendar(Base):
+    """GTFS calendar.txt — weekly service pattern.
+
+    GTFS spec uses 0/1 integers for day flags, so we keep Integer here to
+    faithfully mirror the source data and avoid coercion surprises on load.
+    """
+
     __tablename__ = "gtfs_calendar"
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -99,6 +106,7 @@ class Calendar(Base):
         String, ForeignKey("gtfs_feed.gtfs_id", ondelete="CASCADE"), nullable=False, index=True
     )
     service_id: Mapped[str] = mapped_column(String, index=True)
+    # GTFS spec: 0 or 1 — kept as Integer to match raw CSV values exactly.
     monday: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     tuesday: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     wednesday: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
@@ -106,6 +114,7 @@ class Calendar(Base):
     friday: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     saturday: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     sunday: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    # YYYYMMDD strings per GTFS spec — stored as String to avoid timezone drift.
     start_date: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     end_date: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 
@@ -143,7 +152,7 @@ class ShapePoint(Base):
     shape_id: Mapped[str] = mapped_column(String, index=True)
     sequence: Mapped[int] = mapped_column(Integer)
     # PostGIS POINT(lon lat) SRID 4326
-    geom: Mapped[Optional[object]] = mapped_column(
+    geom: Mapped[Optional[WKBElement]] = mapped_column(
         Geometry("POINT", srid=4326), nullable=True
     )
     dist_traveled: Mapped[Optional[float]] = mapped_column(Float, nullable=True)

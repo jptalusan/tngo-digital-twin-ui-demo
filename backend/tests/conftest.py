@@ -37,7 +37,13 @@ def _ensure_test_database():
 @pytest.fixture(scope="session", autouse=True)
 def _ensure_test_db():
     _ensure_test_database()
-    Base.metadata.drop_all(bind=engine)
+    # Drop via raw SQL CASCADE to handle any stale tables/constraints that
+    # SQLAlchemy's drop_all (which issues individual DROP TABLE statements
+    # without CASCADE) cannot resolve.
+    with engine.connect() as conn:
+        conn.execute(text("DROP SCHEMA public CASCADE"))
+        conn.execute(text("CREATE SCHEMA public"))
+        conn.commit()
     init_db()
     yield
 
@@ -46,24 +52,30 @@ def _ensure_test_db():
 def _clean_db():
     session = SessionLocal()
     try:
-        # Truncate tables in dependency order
+        # Truncate tables in dependency order (children before parents).
+        # Table names must match the __tablename__ values in the ORM models.
+        # gtfs_feed is the root parent for all gtfs_* tables; CASCADE from it
+        # clears children, but we list them explicitly for RESTART IDENTITY.
         for table in [
-            "stop_time",
-            "trip",
-            "route",
-            "stop",
-            "calendar",
-            "calendar_date",
-            "shape_point",
-            "shape",
+            "gtfs_stop_time",
+            "gtfs_trip",
+            "gtfs_route",
+            "gtfs_stop",
+            "gtfs_calendar",
+            "gtfs_calendar_date",
+            "gtfs_shape_point",
+            "gtfs_shape",
+            "gtfs_agency",
+            "gtfs_job",
+            "gtfs_feed",
             "vehicle_schedule",
-            "vehicle",
-            "depot",
             "vehicle_route_stop",
             "vehicle_route",
+            "ondemand_vehicle",
+            "ondemand_service_zone",
             "ondemand_trip",
             "ondemand_request",
-            "agency",
+            "depot",
         ]:
             session.execute(text(f"TRUNCATE TABLE {table} RESTART IDENTITY CASCADE"))
         session.commit()

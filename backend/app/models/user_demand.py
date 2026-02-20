@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from geoalchemy2 import Geometry
+from geoalchemy2 import Geometry, WKBElement
 from sqlalchemy import BigInteger, Boolean, Integer, String, Float, Time, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -30,13 +30,13 @@ class UserDemand(Base):
     count_fyp: Mapped[int] = mapped_column(Integer, nullable=False)
 
     # Home location — POINT(lon lat) SRID 4326
-    home_location: Mapped[object] = mapped_column(
-        Geometry("POINT", srid=4326), nullable=False
+    home_location: Mapped[WKBElement] = mapped_column(
+        Geometry("POINT", srid=4326, spatial_index=True), nullable=False
     )
 
     # Work / office location — POINT(lon lat) SRID 4326
-    work_location: Mapped[object] = mapped_column(
-        Geometry("POINT", srid=4326), nullable=False
+    work_location: Mapped[WKBElement] = mapped_column(
+        Geometry("POINT", srid=4326, spatial_index=True), nullable=False
     )
 
     # Optional commute metrics

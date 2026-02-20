@@ -1,7 +1,5 @@
-from geoalchemy2 import WKTElement
-
 from app.db import SessionLocal
-from app.models.ondemand import Depot, Vehicle, VehicleSchedule
+from app.models.ondemand import Depot, OnDemandVehicle, VehicleSchedule
 
 
 def test_depot_vehicle_relationships():
@@ -12,16 +10,13 @@ def test_depot_vehicle_relationships():
             name="Depot Unit",
             lat=35.0,
             lon=-90.0,
-            service_zone=WKTElement(
-                "POLYGON((-90.02 34.99, -90.02 35.01, -89.98 35.01, -89.98 34.99, -90.02 34.99))",
-                srid=4326,
-            ),
         )
         session.add(depot)
+        session.flush()  # ensure depot PK before FK references
         session.add_all(
             [
-                Vehicle(vehicle_id="veh-001", depot_id="depot-unit", capacity=4),
-                Vehicle(vehicle_id="veh-002", depot_id="depot-unit", capacity=4),
+                OnDemandVehicle(vehicle_id="veh-001", depot_id="depot-unit", capacity=4),
+                OnDemandVehicle(vehicle_id="veh-002", depot_id="depot-unit", capacity=4),
             ]
         )
         session.add(

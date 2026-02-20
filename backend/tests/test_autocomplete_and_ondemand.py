@@ -1,7 +1,5 @@
-from geoalchemy2 import WKTElement
-
 from app.db import SessionLocal
-from app.models.ondemand import Depot, Vehicle, VehicleSchedule
+from app.models.ondemand import Depot, OnDemandVehicle, VehicleSchedule
 from scripts.load_gtfs import load_gtfs
 
 
@@ -15,10 +13,6 @@ def test_autocomplete_returns_stops_and_depots(client, gtfs_fixture_path):
             name="Main Depot",
             lat=35.1495,
             lon=-90.0490,
-            service_zone=WKTElement(
-                "POLYGON((-90.06 35.14, -90.06 35.16, -90.03 35.16, -90.03 35.14, -90.06 35.14))",
-                srid=4326,
-            ),
         )
         session.add(depot)
         session.commit()
@@ -44,13 +38,10 @@ def test_on_demand_mock_endpoint(client):
             name="OD Depot",
             lat=35.1495,
             lon=-90.0490,
-            service_zone=WKTElement(
-                "POLYGON((-90.06 35.14, -90.06 35.16, -90.03 35.16, -90.03 35.14, -90.06 35.14))",
-                srid=4326,
-            ),
         )
         session.add(depot)
-        session.add(Vehicle(vehicle_id="veh-od-1", depot_id="depot-od", capacity=2))
+        session.flush()
+        session.add(OnDemandVehicle(vehicle_id="veh-od-1", depot_id="depot-od", capacity=2))
         session.add(
             VehicleSchedule(
                 vehicle_id="veh-od-1",

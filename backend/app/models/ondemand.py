@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Optional
 
-from geoalchemy2 import Geometry
+from geoalchemy2 import Geometry, WKBElement
 from sqlalchemy import String, Integer, Float, ForeignKey, DateTime, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -33,8 +34,8 @@ class OnDemandServiceZone(Base):
     hex_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
     h3_resolution: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     # Hex boundary stored as a polygon for PostGIS spatial queries
-    boundary: Mapped[Optional[object]] = mapped_column(
-        Geometry("POLYGON", srid=4326), nullable=True
+    boundary: Mapped[Optional[WKBElement]] = mapped_column(
+        Geometry("POLYGON", srid=4326, spatial_index=True), nullable=True
     )
 
     depot: Mapped[Optional[Depot]] = relationship(back_populates="service_zones")
@@ -98,7 +99,7 @@ class VehicleRoute(Base):
     route_id: Mapped[str] = mapped_column(String, unique=True, index=True)
     vehicle_id: Mapped[str] = mapped_column(String, ForeignKey("ondemand_vehicle.vehicle_id"), index=True)
     status: Mapped[str] = mapped_column(String, default="active")
-    updated_at: Mapped[Optional[DateTime]] = mapped_column(
+    updated_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
 

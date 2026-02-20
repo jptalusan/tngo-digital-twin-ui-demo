@@ -1,7 +1,7 @@
-from geoalchemy2 import WKTElement
+from sqlalchemy import select
 
 from app.db import SessionLocal
-from app.models.ondemand import Depot, Vehicle, VehicleSchedule, VehicleRoute, VehicleRouteStop
+from app.models.ondemand import Depot, OnDemandVehicle, VehicleSchedule, VehicleRoute, VehicleRouteStop
 
 
 def test_on_demand_persists_route(client):
@@ -12,13 +12,10 @@ def test_on_demand_persists_route(client):
             name="OD Depot",
             lat=35.1495,
             lon=-90.0490,
-            service_zone=WKTElement(
-                "POLYGON((-90.06 35.14, -90.06 35.16, -90.03 35.16, -90.03 35.14, -90.06 35.14))",
-                srid=4326,
-            ),
         )
         session.add(depot)
-        session.add(Vehicle(vehicle_id="veh-od-1", depot_id="depot-od", capacity=4))
+        session.flush()
+        session.add(OnDemandVehicle(vehicle_id="veh-od-1", depot_id="depot-od", capacity=4))
         session.add(
             VehicleSchedule(
                 vehicle_id="veh-od-1",
@@ -48,18 +45,16 @@ def test_on_demand_persists_route(client):
 
     session = SessionLocal()
     try:
-        route = (
-            session.query(VehicleRoute)
-            .filter(VehicleRoute.vehicle_id == "veh-od-1", VehicleRoute.status == "active")
-            .first()
-        )
+        route = session.execute(
+            select(VehicleRoute)
+            .where(VehicleRoute.vehicle_id == "veh-od-1", VehicleRoute.status == "active")
+        ).scalars().first()
         assert route is not None
-        stops = (
-            session.query(VehicleRouteStop)
-            .filter(VehicleRouteStop.route_id == route.route_id)
+        stops = session.execute(
+            select(VehicleRouteStop)
+            .where(VehicleRouteStop.route_id == route.route_id)
             .order_by(VehicleRouteStop.sequence)
-            .all()
-        )
+        ).scalars().all()
         assert len(stops) == 2
         assert stops[0].stop_type == "pickup"
         assert stops[1].stop_type == "dropoff"

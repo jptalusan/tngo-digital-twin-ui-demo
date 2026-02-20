@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Optional
 
-from geoalchemy2 import Geometry
+from geoalchemy2 import Geometry, WKBElement
 from sqlalchemy import BigInteger, ForeignKey, String, Float, Index, DateTime, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -34,8 +35,8 @@ class CountyGeo(Base):
     lsad: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     aland: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
     awater: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
-    geometry: Mapped[Optional[object]] = mapped_column(
-        Geometry("MULTIPOLYGON", srid=4326), nullable=True
+    geometry: Mapped[Optional[WKBElement]] = mapped_column(
+        Geometry("MULTIPOLYGON", srid=4326, spatial_index=True), nullable=True
     )
 
     state: Mapped[Optional[StateFips]] = relationship(back_populates="counties")
@@ -49,8 +50,8 @@ class StateGeo(Base):
     )
     name: Mapped[str] = mapped_column(String, nullable=False)
     density: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
-    geometry: Mapped[Optional[object]] = mapped_column(
-        Geometry("MULTIPOLYGON", srid=4326), nullable=True
+    geometry: Mapped[Optional[WKBElement]] = mapped_column(
+        Geometry("MULTIPOLYGON", srid=4326, spatial_index=True), nullable=True
     )
 
     state: Mapped[Optional[StateFips]] = relationship()
@@ -88,8 +89,8 @@ class SyntheticDemand(Base):
     origin_county_fips: Mapped[str] = mapped_column(String(3), index=True)
     origin_census_tract_fips: Mapped[str] = mapped_column(String(6))
     origin_block_fips: Mapped[str] = mapped_column(String(1))
-    origin_location: Mapped[Optional[object]] = mapped_column(
-        Geometry("POINT", srid=4326), nullable=True
+    origin_location: Mapped[Optional[WKBElement]] = mapped_column(
+        Geometry("POINT", srid=4326, spatial_index=True), nullable=True
     )
     origin_node: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 
@@ -98,16 +99,16 @@ class SyntheticDemand(Base):
     destination_county_fips: Mapped[str] = mapped_column(String(3), index=True)
     destination_census_tract_fips: Mapped[str] = mapped_column(String(6))
     destination_block_fips: Mapped[str] = mapped_column(String(1))
-    destination_location: Mapped[Optional[object]] = mapped_column(
-        Geometry("POINT", srid=4326), nullable=True
+    destination_location: Mapped[Optional[WKBElement]] = mapped_column(
+        Geometry("POINT", srid=4326, spatial_index=True), nullable=True
     )
     destination_node: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 
-    departure_time_utc: Mapped[Optional[DateTime]] = mapped_column(
+    departure_time_utc: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
     departure_time_bin: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-    arrival_time_utc: Mapped[Optional[DateTime]] = mapped_column(
+    arrival_time_utc: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
     travel_time_min: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
@@ -199,10 +200,10 @@ class AnalysisJob(Base):
     state_fips: Mapped[str] = mapped_column(String(2), index=True)
     county_fips: Mapped[str] = mapped_column(String(3), index=True)
     status: Mapped[str] = mapped_column(String, index=True)
-    created_at: Mapped[DateTime] = mapped_column(
+    created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
-    updated_at: Mapped[DateTime] = mapped_column(
+    updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
     message: Mapped[Optional[str]] = mapped_column(String, nullable=True)
