@@ -59,6 +59,7 @@ class Settings:
         os.getenv("DEFAULT_ONDEMAND_SPEED_KMPH", "30")
     )
     default_brt_speed_kmph: float = float(os.getenv("DEFAULT_BRT_SPEED_KMPH", "45"))
+    heatmap_grid_size_mile: float = float(os.getenv("HEATMAP_GRID_SIZE_MILE", "1.0"))
 
     def __post_init__(self) -> None:
         object.__setattr__(

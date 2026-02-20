@@ -1,8 +1,12 @@
-import { useState, useCallback, useMemo, useEffect } from 'react';
+import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
+import { toast } from 'sonner';
 import { MapView, Marker, RoutePolyline, MapLayer } from './components/MapView';
 import { PassengerView } from './components/PassengerView';
 import { OperatorView, Depot, BusRoute } from './components/OperatorView';
 import { MoveODPage } from './components/MoveODPage';
+import { MoveODAnalysisPage, type MoveODAnalysisSelection } from './components/MoveODAnalysisPage';
+import { AnalysisJobNotifications } from './components/AnalysisJobNotifications';
+import { Toaster } from './components/ui/sonner';
 import { EvaluationDrawer } from './components/EvaluationDrawer';
 import { ItineraryDrawer } from './components/ItineraryDrawer';
 import { MapLegend, LegendItem } from './components/MapLegend';
@@ -11,12 +15,17 @@ import { apiService, AutocompleteResult, Route, EvaluationResponse } from './ser
 import { buildUrl } from './services/http';
 import { ResponsiveContainer, LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip } from 'recharts';
 import * as h3 from 'h3-js';
+import { useAnalysisJobs } from './state/analysisJobs';
+import type { AnalysisJob } from './state/analysisJobs';
 
-type ViewMode = 'passenger' | 'operator' | 'moveod';
+type ViewMode = 'passenger' | 'operator' | 'moveod' | 'moveod-analysis';
 type DepotWizardStep = 'pick-location' | 'select-zone' | 'vehicles';
 
 export default function App() {
   const [viewMode, setViewMode] = useState<ViewMode>('moveod');
+  const [moveodAnalysisSelection, setMoveodAnalysisSelection] = useState<MoveODAnalysisSelection | null>(null);
+  const { jobs } = useAnalysisJobs();
+  const jobStatusRef = useRef<Map<string, string>>(new Map());
   const [origin, setOrigin] = useState<AutocompleteResult | null>(null);
   const [destination, setDestination] = useState<AutocompleteResult | null>(null);
   const [routes, setRoutes] = useState<Route[]>([]);
@@ -36,6 +45,38 @@ export default function App() {
   const [itineraryMode, setItineraryMode] = useState<string>('');
   const [selectedItineraryId, setSelectedItineraryId] = useState<string | null>(null);
   const [baseMapStyle, setBaseMapStyle] = useState<'standard' | 'light'>('light');
+
+  const handleJobNavigate = useCallback(
+    (job: AnalysisJob) => {
+      if (job.selection) {
+        setMoveodAnalysisSelection(job.selection);
+      }
+      setViewMode('moveod-analysis');
+    },
+    [setMoveodAnalysisSelection, setViewMode]
+  );
+
+  useEffect(() => {
+    jobs.forEach((job) => {
+      const prevStatus = jobStatusRef.current.get(job.jobId);
+      if ((job.status === 'done' || job.status === 'error') && prevStatus !== job.status) {
+        if (viewMode !== 'moveod-analysis') {
+          const title = job.status === 'done' ? 'Analysis done' : 'Analysis failed';
+          const description =
+            job.message ??
+            (job.status === 'done' ? 'View results?' : 'Open analysis to review details.');
+          toast(title, {
+            description,
+            action: {
+              label: 'View',
+              onClick: () => handleJobNavigate(job)
+            }
+          });
+        }
+      }
+    });
+    jobStatusRef.current = new Map(jobs.map((job) => [job.jobId, job.status]));
+  }, [jobs, viewMode, handleJobNavigate]);
   const [depotWizardOpen, setDepotWizardOpen] = useState(false);
   const [depotWizardStep, setDepotWizardStep] = useState<DepotWizardStep>('pick-location');
   const [draftDepotLocation, setDraftDepotLocation] = useState<{ coords: [number, number]; address?: string } | null>(null);
@@ -954,9 +995,13 @@ export default function App() {
 
   return (
     <div className="h-screen flex flex-col">
+      <Toaster richColors position="top-right" />
       {/* Top Bar */}
       <div className="h-16 bg-white border-b flex items-center justify-between px-6">
-        <h1 className="text-2xl">Transit Planner</h1>
+        <div className="flex items-center gap-3">
+          <AnalysisJobNotifications onNavigate={handleJobNavigate} />
+          <h1 className="text-2xl">Transit Planner</h1>
+        </div>
         <div className="flex gap-3">
           <div className="flex gap-2">
             <button
@@ -1010,13 +1055,31 @@ export default function App() {
           >
             MoveOD
           </button>
+          <button
+            onClick={() => handleViewModeChange('moveod-analysis')}
+            className={`px-6 py-2 rounded-lg font-medium transition-colors ${
+              viewMode === 'moveod-analysis'
+                ? 'bg-blue-600 text-white'
+                : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+            }`}
+          >
+            MoveOD Analysis
+          </button>
         </div>
       </div>
 
       {/* Main Content */}
       <div className="flex-1 flex min-h-0 overflow-hidden relative">
         {viewMode === 'moveod' ? (
-          <MoveODPage baseMapStyle={baseMapStyle} />
+          <MoveODPage
+            baseMapStyle={baseMapStyle}
+            onAnalyze={(selection) => {
+              setMoveodAnalysisSelection(selection);
+              setViewMode('moveod-analysis');
+            }}
+          />
+        ) : viewMode === 'moveod-analysis' ? (
+          <MoveODAnalysisPage selection={moveodAnalysisSelection} baseMapStyle={baseMapStyle} />
         ) : (
           <>
             {/* Sidebar */}

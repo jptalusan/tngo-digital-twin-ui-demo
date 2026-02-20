@@ -6,7 +6,14 @@ from typing import Any, Optional
 from sqlalchemy import case, func, literal, select, text
 from sqlalchemy.orm import Session
 
-from app.models.moveod import CountyGeo, StateFips, StateGeo, SyntheticDemand
+from app.models.moveod import (
+    CountyGeo,
+    StateFips,
+    StateGeo,
+    SyntheticDemand,
+    AnalysisHeatmap,
+    AnalysisJob,
+)
 
 _UNACCENT_AVAILABLE: Optional[bool] = None
 
@@ -292,3 +299,130 @@ def list_synthetic_demand(
             }
         )
     return items
+
+
+def has_analysis(session: Session, state_fips: str, county_fips: str) -> bool:
+    exists = session.execute(
+        select(AnalysisHeatmap.id)
+        .where(
+            AnalysisHeatmap.state_fips == state_fips,
+            AnalysisHeatmap.county_fips == county_fips,
+        )
+        .limit(1)
+    ).first()
+    return bool(exists)
+
+
+def get_active_job(
+    session: Session, state_fips: str, county_fips: str
+) -> AnalysisJob | None:
+    return (
+        session.execute(
+            select(AnalysisJob)
+            .where(
+                AnalysisJob.state_fips == state_fips,
+                AnalysisJob.county_fips == county_fips,
+                AnalysisJob.status.in_(["queued", "running"]),
+            )
+            .order_by(AnalysisJob.created_at.desc())
+            .limit(1)
+        )
+        .scalars()
+        .first()
+    )
+
+
+def create_job(
+    session: Session, job_id: str, state_fips: str, county_fips: str
+) -> AnalysisJob:
+    job = AnalysisJob(
+        job_id=job_id,
+        state_fips=state_fips,
+        county_fips=county_fips,
+        status="queued",
+    )
+    session.add(job)
+    session.commit()
+    session.refresh(job)
+    return job
+
+
+def get_job(session: Session, job_id: str) -> AnalysisJob | None:
+    return (
+        session.execute(select(AnalysisJob).where(AnalysisJob.job_id == job_id))
+        .scalars()
+        .first()
+    )
+
+
+def update_job_status(
+    session: Session, job_id: str, status: str, message: str | None = None
+) -> None:
+    session.execute(
+        text(
+            "UPDATE moveod_analysis_jobs SET status = :status, message = :message, updated_at = NOW() "
+            "WHERE job_id = :job_id"
+        ),
+        {"status": status, "message": message, "job_id": job_id},
+    )
+    session.commit()
+
+
+
+
+def list_available_demand_areas(session: Session) -> dict[str, list[str]]:
+    rows = session.execute(
+        select(
+            SyntheticDemand.origin_state_fips,
+            SyntheticDemand.origin_county_fips,
+        )
+        .where(
+            SyntheticDemand.origin_state_fips.is_not(None),
+            SyntheticDemand.origin_county_fips.is_not(None),
+        )
+        .distinct()
+        .order_by(SyntheticDemand.origin_state_fips, SyntheticDemand.origin_county_fips)
+    ).all()
+    mapping: dict[str, list[str]] = {}
+    for row in rows:
+        mapping.setdefault(row.origin_state_fips, []).append(row.origin_county_fips)
+    return mapping
+
+
+def list_available_demand_areas_named(session: Session) -> list[dict[str, Any]]:
+    rows = session.execute(
+        select(
+            SyntheticDemand.origin_state_fips.label("state_fips"),
+            SyntheticDemand.origin_county_fips.label("county_fips"),
+            StateFips.state_name.label("state_name"),
+            CountyGeo.name.label("county_name"),
+            CountyGeo.geoid.label("geoid"),
+        )
+        .select_from(SyntheticDemand)
+        .join(
+            StateFips,
+            StateFips.state_fips == SyntheticDemand.origin_state_fips,
+        )
+        .join(
+            CountyGeo,
+            (CountyGeo.state_fips == SyntheticDemand.origin_state_fips)
+            & (CountyGeo.county_fips == SyntheticDemand.origin_county_fips),
+        )
+        .distinct()
+        .order_by(SyntheticDemand.origin_state_fips, CountyGeo.name)
+    ).all()
+
+    grouped: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        entry = grouped.setdefault(
+            row.state_fips,
+            {"state_fips": row.state_fips, "state_name": row.state_name, "counties": []},
+        )
+        entry["counties"].append(
+            {
+                "county_fips": row.county_fips,
+                "county_name": row.county_name,
+                "geoid": row.geoid,
+            }
+        )
+    return list(grouped.values())

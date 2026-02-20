@@ -11,8 +11,10 @@ from sqlalchemy import text
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
 from app.db import SessionLocal
+from app.logging.config import get_logger
 from app.models.moveod import SyntheticDemand
 
+logger = get_logger("moveod-demand-loader")
 
 def _read_csv(path: Path) -> list[dict]:
     with path.open("r", encoding="utf-8-sig") as f:
@@ -79,12 +81,29 @@ def main() -> None:
 
     session = SessionLocal()
     try:
-        session.execute(text("TRUNCATE TABLE moveod_synthetic_demand RESTART IDENTITY CASCADE"))
-        session.commit()
-
         batch = 0
         for path in csv_paths:
             rows = _read_csv(path)
+            if not rows:
+                continue
+            first_origin = _parse_geoid(rows[0].get("origin_geoid", ""))
+            if first_origin["state_fips"] and first_origin["county_fips"]:
+                exists = session.execute(
+                    text(
+                        "SELECT 1 FROM moveod_synthetic_demand "
+                        "WHERE origin_state_fips = :sf AND origin_county_fips = :cf LIMIT 1"
+                    ),
+                    {"sf": first_origin["state_fips"], "cf": first_origin["county_fips"]},
+                ).scalar_one_or_none()
+                if exists:
+                    logger.warning(
+                        "Skipping %s: data already exists for state_fips=%s county_fips=%s",
+                        path.name,
+                        first_origin["state_fips"],
+                        first_origin["county_fips"],
+                    )
+                    continue
+
             for row in rows:
                 origin = _parse_geoid(row.get("origin_geoid", ""))
                 destination = _parse_geoid(row.get("destination_geoid", ""))
@@ -105,6 +124,7 @@ def main() -> None:
                         destination_location=_point_wkt(row.get("dest_lat", ""), row.get("dest_lon", "")),
                         destination_node=row.get("destination_node") or None,
                         departure_time_utc=_parse_datetime(row.get("departure_time", "")),
+                        departure_time_bin=row.get("departure_time_bin") or None,
                         arrival_time_utc=_parse_datetime(row.get("arrival_time", "")),
                         travel_time_min=float(row["travel_time_min"]) if row.get("travel_time_min") else None,
                         travel_time_bin=row.get("travel_time_bin") or None,
@@ -118,10 +138,12 @@ def main() -> None:
                     session.commit()
                     batch = 0
 
+            logger.info("Loaded %s (%s rows)", path.name, len(rows))
+
         if batch:
             session.commit()
 
-        print("Loaded MoveOD synthetic demand data")
+        logger.info("Loaded MoveOD synthetic demand data")
     finally:
         session.close()
 

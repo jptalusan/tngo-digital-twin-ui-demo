@@ -510,6 +510,24 @@ const StateFeatureCollectionResponse = z
     message: z.string(),
   })
   .passthrough();
+const AnalysisJobResponse = z
+  .object({ job_id: z.string(), status: z.string(), message: z.string() })
+  .passthrough();
+const AnalysisHeatmapResponse = z
+  .object({ items: z.array(z.array(z.number())), message: z.string() })
+  .passthrough();
+const AnalysisBinsResponse = z
+  .object({
+    items: z.array(z.object({}).partial().passthrough()),
+    message: z.string(),
+  })
+  .passthrough();
+const AnalysisFlowBalanceResponse = z
+  .object({
+    items: z.array(z.object({}).partial().passthrough()),
+    message: z.string(),
+  })
+  .passthrough();
 
 export const schemas = {
   AutocompleteResult,
@@ -574,6 +592,10 @@ export const schemas = {
   state_fips,
   CountyFeatureResponse,
   StateFeatureCollectionResponse,
+  AnalysisJobResponse,
+  AnalysisHeatmapResponse,
+  AnalysisBinsResponse,
+  AnalysisFlowBalanceResponse,
 };
 
 const endpoints = makeApi([
@@ -831,6 +853,288 @@ const endpoints = makeApi([
     description: `Basic liveness check for the API service.`,
     requestFormat: "json",
     response: z.object({}).partial().passthrough(),
+  },
+  {
+    method: "get",
+    path: "/api/moveod/analysis/available-areas",
+    alias: "get_available_demand_areas_api_moveod_analysis_available_areas_get",
+    requestFormat: "json",
+    response: SearchListResponse,
+  },
+  {
+    method: "get",
+    path: "/api/moveod/analysis/available-areas-named",
+    alias:
+      "get_available_demand_areas_named_api_moveod_analysis_available_areas_named_get",
+    requestFormat: "json",
+    response: SearchListResponse,
+  },
+  {
+    method: "get",
+    path: "/api/moveod/analysis/departure-bins",
+    alias: "get_departure_bins_api_moveod_analysis_departure_bins_get",
+    requestFormat: "json",
+    parameters: [
+      {
+        name: "state_fips",
+        type: "Query",
+        schema: z.string().min(2).max(2),
+      },
+      {
+        name: "county_fips",
+        type: "Query",
+        schema: z.string().min(3).max(3),
+      },
+      {
+        name: "kind",
+        type: "Query",
+        schema: z
+          .string()
+          .regex(/^(departure|arrival)$/)
+          .optional()
+          .default("departure"),
+      },
+    ],
+    response: AnalysisBinsResponse,
+    errors: [
+      {
+        status: 422,
+        description: `Validation Error`,
+        schema: HTTPValidationError,
+      },
+    ],
+  },
+  {
+    method: "get",
+    path: "/api/moveod/analysis/flow-balance",
+    alias: "get_flow_balance_api_moveod_analysis_flow_balance_get",
+    requestFormat: "json",
+    parameters: [
+      {
+        name: "state_fips",
+        type: "Query",
+        schema: z.string().min(2).max(2),
+      },
+      {
+        name: "county_fips",
+        type: "Query",
+        schema: z.string().min(3).max(3),
+      },
+      {
+        name: "limit",
+        type: "Query",
+        schema: z.number().int().gte(1).lte(10000).optional().default(1000),
+      },
+    ],
+    response: AnalysisFlowBalanceResponse,
+    errors: [
+      {
+        status: 422,
+        description: `Validation Error`,
+        schema: HTTPValidationError,
+      },
+    ],
+  },
+  {
+    method: "get",
+    path: "/api/moveod/analysis/heatmap",
+    alias: "get_analysis_heatmap_api_moveod_analysis_heatmap_get",
+    requestFormat: "json",
+    parameters: [
+      {
+        name: "state_fips",
+        type: "Query",
+        schema: z.string().min(2).max(2),
+      },
+      {
+        name: "county_fips",
+        type: "Query",
+        schema: z.string().min(3).max(3),
+      },
+      {
+        name: "kind",
+        type: "Query",
+        schema: z
+          .string()
+          .regex(/^(origin|destination)$/)
+          .optional()
+          .default("origin"),
+      },
+      {
+        name: "limit",
+        type: "Query",
+        schema: z.number().int().gte(1).lte(200000).optional().default(200000),
+      },
+    ],
+    response: AnalysisHeatmapResponse,
+    errors: [
+      {
+        status: 422,
+        description: `Validation Error`,
+        schema: HTTPValidationError,
+      },
+    ],
+  },
+  {
+    method: "get",
+    path: "/api/moveod/analysis/status",
+    alias: "get_analysis_status_api_moveod_analysis_status_get",
+    requestFormat: "json",
+    parameters: [
+      {
+        name: "job_id",
+        type: "Query",
+        schema: z.string(),
+      },
+    ],
+    response: AnalysisJobResponse,
+    errors: [
+      {
+        status: 422,
+        description: `Validation Error`,
+        schema: HTTPValidationError,
+      },
+    ],
+  },
+  {
+    method: "get",
+    path: "/api/moveod/analysis/status-by-area",
+    alias: "get_analysis_status_by_area_api_moveod_analysis_status_by_area_get",
+    requestFormat: "json",
+    parameters: [
+      {
+        name: "state_fips",
+        type: "Query",
+        schema: z.string().min(2).max(2),
+      },
+      {
+        name: "county_fips",
+        type: "Query",
+        schema: z.string().min(3).max(3),
+      },
+    ],
+    response: AnalysisJobResponse,
+    errors: [
+      {
+        status: 422,
+        description: `Validation Error`,
+        schema: HTTPValidationError,
+      },
+    ],
+  },
+  {
+    method: "get",
+    path: "/api/moveod/analysis/stream",
+    alias: "stream_analysis_status_api_moveod_analysis_stream_get",
+    requestFormat: "json",
+    parameters: [
+      {
+        name: "job_id",
+        type: "Query",
+        schema: z.string(),
+      },
+      {
+        name: "interval_s",
+        type: "Query",
+        schema: z.number().gte(0.5).lte(10).optional().default(2),
+      },
+    ],
+    response: z.unknown(),
+    errors: [
+      {
+        status: 422,
+        description: `Validation Error`,
+        schema: HTTPValidationError,
+      },
+    ],
+  },
+  {
+    method: "get",
+    path: "/api/moveod/analysis/top-origins",
+    alias: "get_top_origins_api_moveod_analysis_top_origins_get",
+    requestFormat: "json",
+    parameters: [
+      {
+        name: "state_fips",
+        type: "Query",
+        schema: z.string().min(2).max(2),
+      },
+      {
+        name: "county_fips",
+        type: "Query",
+        schema: z.string().min(3).max(3),
+      },
+      {
+        name: "limit",
+        type: "Query",
+        schema: z.number().int().gte(1).lte(2000).optional().default(200),
+      },
+    ],
+    response: AnalysisBinsResponse,
+    errors: [
+      {
+        status: 422,
+        description: `Validation Error`,
+        schema: HTTPValidationError,
+      },
+    ],
+  },
+  {
+    method: "get",
+    path: "/api/moveod/analysis/travel-time-bins",
+    alias: "get_travel_time_bins_api_moveod_analysis_travel_time_bins_get",
+    requestFormat: "json",
+    parameters: [
+      {
+        name: "state_fips",
+        type: "Query",
+        schema: z.string().min(2).max(2),
+      },
+      {
+        name: "county_fips",
+        type: "Query",
+        schema: z.string().min(3).max(3),
+      },
+    ],
+    response: AnalysisBinsResponse,
+    errors: [
+      {
+        status: 422,
+        description: `Validation Error`,
+        schema: HTTPValidationError,
+      },
+    ],
+  },
+  {
+    method: "post",
+    path: "/api/moveod/analyze",
+    alias: "analyze_moveod_api_moveod_analyze_post",
+    requestFormat: "json",
+    parameters: [
+      {
+        name: "state_fips",
+        type: "Query",
+        schema: z.string().min(2).max(2),
+      },
+      {
+        name: "county_fips",
+        type: "Query",
+        schema: z.string().min(3).max(3),
+      },
+      {
+        name: "force",
+        type: "Query",
+        schema: z.boolean().optional().default(false),
+      },
+    ],
+    response: AnalysisJobResponse,
+    errors: [
+      {
+        status: 422,
+        description: `Validation Error`,
+        schema: HTTPValidationError,
+      },
+    ],
   },
   {
     method: "get",

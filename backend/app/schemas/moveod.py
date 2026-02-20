@@ -48,3 +48,24 @@ class SyntheticDemandItem(BaseModel):
     travel_time_min: Optional[float] = None
     travel_time_bin: Optional[str] = None
     travel_distance_mi: Optional[float] = None
+
+
+class AnalysisHeatmapResponse(BaseModel):
+    items: list[list[float]]
+    message: str
+
+
+class AnalysisBinsResponse(BaseModel):
+    items: list[dict[str, Any]]
+    message: str
+
+
+class AnalysisFlowBalanceResponse(BaseModel):
+    items: list[dict[str, Any]]
+    message: str
+
+
+class AnalysisJobResponse(BaseModel):
+    job_id: str
+    status: str
+    message: str

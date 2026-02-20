@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { MoveODMap, MoveODStateSelection } from './MoveODMap';
+import type { MoveODAnalysisSelection } from './MoveODAnalysisPage';
 import {
   Feature,
   FeatureCollection,
@@ -74,9 +75,10 @@ const buildYearOptions = (start: number, end: number) => {
 
 interface MoveODPageProps {
   baseMapStyle?: 'standard' | 'light';
+  onAnalyze?: (selection: MoveODAnalysisSelection) => void;
 }
 
-export function MoveODPage({ baseMapStyle = 'light' }: MoveODPageProps) {
+export function MoveODPage({ baseMapStyle = 'light', onAnalyze }: MoveODPageProps) {
   const [selectedState, setSelectedState] = useState<StateOption | null>(null);
   const [selectedCounty, setSelectedCounty] = useState<CountyOption | null>(null);
 
@@ -164,7 +166,7 @@ export function MoveODPage({ baseMapStyle = 'light' }: MoveODPageProps) {
 
   const syntheticCountyFips =
     selectedCounty?.county_fips ?? (selectedCounty?.geoid ? selectedCounty.geoid.slice(2) : null);
-  const demandLimit = 2000;
+  const demandLimit = Number(import.meta.env.VITE_MOVEOD_SYNTHETIC_DEMAND_LIMIT ?? 2000);
   const {
     data: syntheticDemandItems,
     loading: loadingSyntheticDemand,
@@ -313,6 +315,17 @@ export function MoveODPage({ baseMapStyle = 'light' }: MoveODPageProps) {
   };
 
   const showCountyLoading = loadingCountySearch || loadingCountyList;
+  const analysisSelection: MoveODAnalysisSelection | null = useMemo(() => {
+    if (!selectedState || !selectedCounty) return null;
+    const countyFips = selectedCounty.county_fips ?? selectedCounty.geoid.slice(2);
+    return {
+      state_fips: selectedState.state_fips,
+      state_name: selectedState.state_name,
+      county_geoid: selectedCounty.geoid,
+      county_name: selectedCounty.name,
+      county_fips: countyFips
+    };
+  }, [selectedState, selectedCounty]);
   const hasExistingDemand = syntheticDemandItems.length > 0;
   const syntheticDemandPoints = useMemo(() => {
     if (!showExistingDemand || !hasExistingDemand) return [] as Array<[number, number]>;
@@ -671,6 +684,15 @@ export function MoveODPage({ baseMapStyle = 'light' }: MoveODPageProps) {
                 <span>{demandVisibilityPercent}%</span>
                 <span>100%</span>
               </div>
+              {analysisSelection && onAnalyze && (
+                <button
+                  type="button"
+                  onClick={() => onAnalyze(analysisSelection)}
+                  className="w-full rounded-md bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700"
+                >
+                  Open Analysis
+                </button>
+              )}
             </div>
           )}
           {loadingSyntheticDemand && selectedState && selectedCounty && (

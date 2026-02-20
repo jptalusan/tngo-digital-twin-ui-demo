@@ -22,7 +22,19 @@ from app.models.ondemand import (
     VehicleRoute,
     VehicleRouteStop,
 )
-from app.models.moveod import StateFips, CountyGeo, StateGeo, CountyFips, SyntheticDemand
+from app.models.moveod import (
+    StateFips,
+    CountyGeo,
+    StateGeo,
+    CountyFips,
+    SyntheticDemand,
+    AnalysisHeatmap,
+    AnalysisDepartureBin,
+    AnalysisTravelTimeBin,
+    AnalysisTopOrigin,
+    AnalysisFlowBalance,
+    AnalysisJob,
+)
 from app.models.user_demand import UserDemand
 
 __all__ = [
@@ -52,4 +64,10 @@ __all__ = [
     "StateGeo",
     "CountyFips",
     "SyntheticDemand",
+    "AnalysisHeatmap",
+    "AnalysisDepartureBin",
+    "AnalysisTravelTimeBin",
+    "AnalysisTopOrigin",
+    "AnalysisFlowBalance",
+    "AnalysisJob",
 ]

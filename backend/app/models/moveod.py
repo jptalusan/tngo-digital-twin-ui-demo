@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Optional
 
 from geoalchemy2 import Geometry
-from sqlalchemy import BigInteger, ForeignKey, String, Float, Index, DateTime
+from sqlalchemy import BigInteger, ForeignKey, String, Float, Index, DateTime, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base
@@ -106,9 +106,103 @@ class SyntheticDemand(Base):
     departure_time_utc: Mapped[Optional[DateTime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    departure_time_bin: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     arrival_time_utc: Mapped[Optional[DateTime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
     travel_time_min: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     travel_time_bin: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     travel_distance_mi: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+
+
+class AnalysisHeatmap(Base):
+    __tablename__ = "moveod_analysis_heatmap"
+    __table_args__ = (
+        Index("idx_moveod_analysis_heatmap_state_county_kind", "state_fips", "county_fips", "kind"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    state_fips: Mapped[str] = mapped_column(String(2), index=True)
+    county_fips: Mapped[str] = mapped_column(String(3), index=True)
+    kind: Mapped[str] = mapped_column(String(12))
+    lat: Mapped[float] = mapped_column(Float)
+    lon: Mapped[float] = mapped_column(Float)
+    weight: Mapped[float] = mapped_column(Float, default=1.0)
+
+
+class AnalysisDepartureBin(Base):
+    __tablename__ = "moveod_analysis_departure_bins"
+    __table_args__ = (
+        Index("idx_moveod_analysis_departure_bins_state_county", "state_fips", "county_fips"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    state_fips: Mapped[str] = mapped_column(String(2), index=True)
+    county_fips: Mapped[str] = mapped_column(String(3), index=True)
+    kind: Mapped[str] = mapped_column(String(12), index=True)
+    bin_label: Mapped[str] = mapped_column(String, index=True)
+    count: Mapped[int] = mapped_column(BigInteger)
+
+
+class AnalysisTravelTimeBin(Base):
+    __tablename__ = "moveod_analysis_travel_time_bins"
+    __table_args__ = (
+        Index("idx_moveod_analysis_travel_time_bins_state_county", "state_fips", "county_fips"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    state_fips: Mapped[str] = mapped_column(String(2), index=True)
+    county_fips: Mapped[str] = mapped_column(String(3), index=True)
+    bin_label: Mapped[str] = mapped_column(String, index=True)
+    count: Mapped[int] = mapped_column(BigInteger)
+    avg_distance_mi: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+
+
+class AnalysisTopOrigin(Base):
+    __tablename__ = "moveod_analysis_top_origins"
+    __table_args__ = (
+        Index("idx_moveod_analysis_top_origins_state_county", "state_fips", "county_fips"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    state_fips: Mapped[str] = mapped_column(String(2), index=True)
+    county_fips: Mapped[str] = mapped_column(String(3), index=True)
+    origin_geoid: Mapped[str] = mapped_column(String(12), index=True)
+    trip_count: Mapped[int] = mapped_column(BigInteger)
+
+
+
+
+class AnalysisFlowBalance(Base):
+    __tablename__ = "moveod_analysis_flow_balance"
+    __table_args__ = (
+        Index("idx_moveod_analysis_flow_balance_state_county", "state_fips", "county_fips"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    state_fips: Mapped[str] = mapped_column(String(2), index=True)
+    county_fips: Mapped[str] = mapped_column(String(3), index=True)
+    geoid: Mapped[str] = mapped_column(String(12), index=True)
+    origin_count: Mapped[int] = mapped_column(BigInteger)
+    destination_count: Mapped[int] = mapped_column(BigInteger)
+    net_flow: Mapped[int] = mapped_column(BigInteger)
+
+
+class AnalysisJob(Base):
+    __tablename__ = "moveod_analysis_jobs"
+    __table_args__ = (
+        Index("idx_moveod_analysis_jobs_state_county", "state_fips", "county_fips"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    job_id: Mapped[str] = mapped_column(String(36), unique=True, index=True)
+    state_fips: Mapped[str] = mapped_column(String(2), index=True)
+    county_fips: Mapped[str] = mapped_column(String(3), index=True)
+    status: Mapped[str] = mapped_column(String, index=True)
+    created_at: Mapped[DateTime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[DateTime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+    message: Mapped[Optional[str]] = mapped_column(String, nullable=True)

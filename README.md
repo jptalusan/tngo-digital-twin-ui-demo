@@ -52,6 +52,14 @@ Load on-demand fleet:
 uv run python scripts/load_ondemand.py
 ```
 
+MoveOD utilities:
+
+```bash
+uv run python scripts/init_db.py --drop-analysis
+uv run python scripts/load_moveod.py
+uv run python scripts/load_moveod_demand.py
+```
+
 ## Frontend
 
 ```bash

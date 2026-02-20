@@ -30,6 +30,21 @@ def init_db(drop: bool = False) -> None:
     Base.metadata.create_all(engine)
 
 
+def drop_moveod_analysis_tables() -> None:
+    if not settings.database_url.startswith("postgresql"):
+        return
+    with engine.connect() as conn:
+        rows = conn.execute(
+            text(
+                "SELECT table_name FROM information_schema.tables "
+                "WHERE table_schema = 'public' AND table_name LIKE 'moveod_analysis_%'"
+            )
+        ).all()
+        for (table_name,) in rows:
+            conn.execute(text(f'DROP TABLE IF EXISTS "{table_name}" CASCADE'))
+        conn.commit()
+
+
 def get_session() -> Generator[Session, None, None]:
     session = SessionLocal()
     try:
