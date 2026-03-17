@@ -2,7 +2,7 @@
 name = "tngo-backend"
 version = "0.1.0"
 description = "FastAPI backend for GTFS + on-demand planning"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 readme = "README.md"
 dependencies = [
   "fastapi>=0.111.0",
@@ -11,10 +11,30 @@ dependencies = [
   "sqlalchemy>=2.0.30",
   "psycopg[binary]>=3.1.19",
   "geoalchemy2>=0.15.2",
-  "python-dotenv>=1.0.1",
+  "python-dotenv~=1.1.1",
   "httpx>=0.27.0",
   "h3>=3.7.7",
   "python-multipart>=0.0.5",
+  "pandas>=2.2.3",
+  "numpy>=1.26.2",
+  "geopandas>=1.0.0",
+  "shapely>=2.0.2",
+  "osmnx>=1.7.1",
+  "networkx>=3.2.1",
+  "pyproj>=3.7.0",
+  "fiona>=1.9.5",
+  "PuLP>=3.1.1",
+  "scipy>=1.11.3",
+  "tqdm>=4.64.0",
+  "requests>=2.31.0",
+  "dask>=2023.11.0",
+  "dask-geopandas>=0.3.1",
+  "psutil>=5.9.6",
+  "aiohttp>=3.11.18",
+  "scikit-learn>=1.5.0",
+  "pyogrio>=0.12.1",
+  "fastparquet>=2025.12.0",
+  "pyarrow>=12.0.1",
 ]
 
 [project.optional-dependencies]
@@ -39,7 +59,7 @@ addopts = "--tb=short"
 
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B"]

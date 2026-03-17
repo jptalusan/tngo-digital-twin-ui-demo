@@ -27,32 +27,6 @@ const ReverseGeocodeRequest = z
 const ReverseGeocodeResponse = z
   .object({ name: z.string(), address: z.string() })
   .passthrough();
-const NavigateRequest = z
-  .object({
-    origin: z.array(z.number()).min(2).max(2),
-    destination: z.array(z.number()).min(2).max(2),
-    modes: z.array(z.string()),
-  })
-  .passthrough();
-const RouteSegment = z
-  .object({
-    instruction: z.string(),
-    distance: z.string(),
-    duration: z.string(),
-    coordinates: z.array(z.array(z.number())),
-    type: z.string(),
-  })
-  .passthrough();
-const Route = z
-  .object({
-    mode: z.string(),
-    totalDuration: z.string(),
-    totalDistance: z.string(),
-    segments: z.array(RouteSegment),
-    coordinates: z.array(z.array(z.number())),
-  })
-  .passthrough();
-const NavigateResponse = z.object({ routes: z.array(Route) }).passthrough();
 const BusRouteGeometryRequest = z
   .object({ origin: z.string(), destination: z.string() })
   .passthrough();
@@ -61,31 +35,6 @@ const BusRouteGeometryResponse = z
     geometry: z.array(z.array(z.number())),
     distance: z.string(),
     duration: z.string(),
-  })
-  .passthrough();
-const OperatorEvaluateMode = z
-  .object({ type: z.string(), config: z.object({}).partial().passthrough() })
-  .passthrough();
-const OperatorEvaluateRequest = z
-  .object({ modes: z.array(OperatorEvaluateMode) })
-  .passthrough();
-const EvaluationMetrics = z
-  .object({
-    totalCoverage: z.string(),
-    estimatedCost: z.string(),
-    ridership: z.string(),
-    averageWaitTime: z.string(),
-    serviceHours: z.string(),
-  })
-  .passthrough();
-const EvaluationResponse = z
-  .object({
-    success: z.boolean(),
-    message: z.string(),
-    metrics: EvaluationMetrics,
-    coverageArea: z.array(z.array(z.array(z.number()))),
-    heatmapData: z.array(z.object({}).partial().passthrough()),
-    serviceBoundaries: z.array(z.array(z.array(z.number()))),
   })
   .passthrough();
 const FixedLineRequest = z
@@ -528,6 +477,30 @@ const AnalysisFlowBalanceResponse = z
     message: z.string(),
   })
   .passthrough();
+const GenerateDemandRequest = z
+  .object({
+    state_fips: z.string(),
+    county_fips: z.string(),
+    start_date: z.string(),
+    end_date: z.string(),
+    lodes_year: z.number().int().optional().default(2022),
+    tiger_year: z.number().int().optional().default(2024),
+    use_ms_buildings: z.boolean().optional().default(true),
+    od_option: z
+      .enum([
+        "Origin and Destination in same County",
+        "Only Origin in County",
+        "Only Destination in County",
+      ])
+      .optional()
+      .default("Origin and Destination in same County"),
+    inrix_path: z.union([z.string(), z.null()]).optional(),
+    inrix_conversion_path: z.union([z.string(), z.null()]).optional(),
+  })
+  .passthrough();
+const GenerateDemandResponse = z
+  .object({ job_id: z.string(), status: z.string(), message: z.string() })
+  .passthrough();
 
 export const schemas = {
   AutocompleteResult,
@@ -535,16 +508,8 @@ export const schemas = {
   HTTPValidationError,
   ReverseGeocodeRequest,
   ReverseGeocodeResponse,
-  NavigateRequest,
-  RouteSegment,
-  Route,
-  NavigateResponse,
   BusRouteGeometryRequest,
   BusRouteGeometryResponse,
-  OperatorEvaluateMode,
-  OperatorEvaluateRequest,
-  EvaluationMetrics,
-  EvaluationResponse,
   FixedLineRequest,
   ScoreBreakdown,
   ItineraryMetrics,
@@ -596,6 +561,8 @@ export const schemas = {
   AnalysisHeatmapResponse,
   AnalysisBinsResponse,
   AnalysisFlowBalanceResponse,
+  GenerateDemandRequest,
+  GenerateDemandResponse,
 };
 
 const endpoints = makeApi([
@@ -737,28 +704,6 @@ const endpoints = makeApi([
       },
     ],
     response: DemandPreviewResponse,
-    errors: [
-      {
-        status: 422,
-        description: `Validation Error`,
-        schema: HTTPValidationError,
-      },
-    ],
-  },
-  {
-    method: "post",
-    path: "/api/evaluate",
-    alias: "evaluate_api_evaluate_post",
-    description: `Mock operator evaluation endpoint.`,
-    requestFormat: "json",
-    parameters: [
-      {
-        name: "body",
-        type: "Body",
-        schema: OperatorEvaluateRequest,
-      },
-    ],
-    response: EvaluationResponse,
     errors: [
       {
         status: 422,
@@ -1137,6 +1082,28 @@ const endpoints = makeApi([
     ],
   },
   {
+    method: "post",
+    path: "/api/moveod/generate",
+    alias: "generate_demand_api_moveod_generate_post",
+    description: `Starts a background job that runs the full MoveOD pipeline (download → LODES → OSM → routing → ILP calibration → DB insert). Returns 409 if demand already exists for the area. Returns 202 with a job_id to poll for progress.`,
+    requestFormat: "json",
+    parameters: [
+      {
+        name: "body",
+        type: "Body",
+        schema: GenerateDemandRequest,
+      },
+    ],
+    response: GenerateDemandResponse,
+    errors: [
+      {
+        status: 422,
+        description: `Validation Error`,
+        schema: HTTPValidationError,
+      },
+    ],
+  },
+  {
     method: "get",
     path: "/api/moveod/synthetic-demand",
     alias: "get_synthetic_demand_api_moveod_synthetic_demand_get",
@@ -1159,28 +1126,6 @@ const endpoints = makeApi([
       },
     ],
     response: SearchListResponse,
-    errors: [
-      {
-        status: 422,
-        description: `Validation Error`,
-        schema: HTTPValidationError,
-      },
-    ],
-  },
-  {
-    method: "post",
-    path: "/api/navigate",
-    alias: "navigate_api_navigate_post",
-    description: `Legacy navigation endpoint returning mock routes by mode.`,
-    requestFormat: "json",
-    parameters: [
-      {
-        name: "body",
-        type: "Body",
-        schema: NavigateRequest,
-      },
-    ],
-    response: NavigateResponse,
     errors: [
       {
         status: 422,

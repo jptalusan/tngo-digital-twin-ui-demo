@@ -13,7 +13,27 @@ import { MapLegend, LegendItem } from './components/MapLegend';
 import { MapContextMenu } from './components/MapContextMenu';
 import { apiService, AutocompleteResult, Route, EvaluationResponse } from './services/api';
 import { buildUrl } from './services/http';
-import { ResponsiveContainer, LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip } from 'recharts';
+import {
+  ResponsiveContainer,
+  LineChart,
+  Line,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  Tooltip,
+  AreaChart,
+  Area,
+  ScatterChart,
+  Scatter,
+  CartesianGrid,
+  ZAxis,
+  RadarChart,
+  Radar,
+  PolarGrid,
+  PolarAngleAxis,
+  PolarRadiusAxis
+} from 'recharts';
 import * as h3 from 'h3-js';
 import { Moon, Sun, X } from 'lucide-react';
 import { useTheme } from 'next-themes';
@@ -80,12 +100,18 @@ export default function App() {
     jobs.forEach((job) => {
       const prevStatus = jobStatusRef.current.get(job.jobId);
       if ((job.status === 'done' || job.status === 'error') && prevStatus !== job.status) {
-        if (viewMode !== 'moveod-analysis') {
-          const title = job.status === 'done' ? 'Analysis done' : 'Analysis failed';
+        const isGenerate = job.jobType === 'generate';
+        const skipToast = isGenerate ? viewMode === 'moveod' : viewMode === 'moveod-analysis';
+        if (!skipToast) {
+          const title = isGenerate
+            ? job.status === 'done' ? 'Generation done' : 'Generation failed'
+            : job.status === 'done' ? 'Analysis done' : 'Analysis failed';
           const elapsed = formatElapsed(job.updatedAt - job.createdAt);
           const description =
             job.message ??
-            (job.status === 'done' ? 'View results?' : 'Open analysis to review details.');
+            (job.status === 'done'
+              ? isGenerate ? 'Demand generated.' : 'View results?'
+              : isGenerate ? 'Open MoveOD to review details.' : 'Open analysis to review details.');
           const finalDescription = `${description} · ${elapsed}`;
           toast(title, {
             description: finalDescription,
@@ -153,6 +179,38 @@ export default function App() {
       { name: 'Fuel', value: 80 },
       { name: 'Maint', value: 60 },
       { name: 'Overhead', value: 40 }
+    ],
+    []
+  );
+  const showOperatorFancyPlots = (import.meta.env.VITE_OPERATOR_EVAL_FANCY_PLOTS ?? 'false') === 'true';
+  const corridorFlowSeries = useMemo(
+    () => [
+      { name: '6a', core: 120, north: 70, east: 55 },
+      { name: '9a', core: 210, north: 130, east: 95 },
+      { name: '12p', core: 160, north: 110, east: 85 },
+      { name: '3p', core: 190, north: 140, east: 105 },
+      { name: '6p', core: 240, north: 170, east: 120 },
+      { name: '9p', core: 130, north: 90, east: 65 }
+    ],
+    []
+  );
+  const travelTimeSeries = useMemo(
+    () => [
+      { name: 'AM', median: 22, p90: 38 },
+      { name: 'Mid', median: 18, p90: 30 },
+      { name: 'PM', median: 26, p90: 44 },
+      { name: 'Late', median: 16, p90: 24 }
+    ],
+    []
+  );
+  const delayDistanceSeries = useMemo(
+    () => [
+      { distance: 2, delay: 3, volume: 140 },
+      { distance: 4, delay: 5, volume: 220 },
+      { distance: 6, delay: 9, volume: 320 },
+      { distance: 8, delay: 12, volume: 280 },
+      { distance: 10, delay: 15, volume: 180 },
+      { distance: 12, delay: 19, volume: 120 }
     ],
     []
   );
@@ -1377,6 +1435,87 @@ export default function App() {
                           </ResponsiveContainer>
                         </div>
                       </div>
+                      {showOperatorFancyPlots && (
+                        <>
+                          <div className="panel-item">
+                            <div className="text-xs font-semibold text-muted">Passenger Flow by Corridor</div>
+                            <div className="mt-2" style={{ width: '100%', height: 140 }}>
+                              <ResponsiveContainer width="100%" height="100%">
+                                <AreaChart data={corridorFlowSeries} margin={{ top: 5, right: 5, left: 0, bottom: 0 }}>
+                                  <defs>
+                                    <linearGradient id="flow-core" x1="0" y1="0" x2="0" y2="1">
+                                      <stop offset="5%" stopColor="var(--chart-1)" stopOpacity={0.7} />
+                                      <stop offset="95%" stopColor="var(--chart-1)" stopOpacity={0.05} />
+                                    </linearGradient>
+                                    <linearGradient id="flow-north" x1="0" y1="0" x2="0" y2="1">
+                                      <stop offset="5%" stopColor="var(--chart-3)" stopOpacity={0.7} />
+                                      <stop offset="95%" stopColor="var(--chart-3)" stopOpacity={0.05} />
+                                    </linearGradient>
+                                    <linearGradient id="flow-east" x1="0" y1="0" x2="0" y2="1">
+                                      <stop offset="5%" stopColor="var(--chart-4)" stopOpacity={0.7} />
+                                      <stop offset="95%" stopColor="var(--chart-4)" stopOpacity={0.05} />
+                                    </linearGradient>
+                                  </defs>
+                                  <XAxis dataKey="name" tick={{ fontSize: 10 }} />
+                                  <YAxis tick={{ fontSize: 10 }} width={30} />
+                                  <Tooltip />
+                                  <Area type="monotone" dataKey="core" stackId="1" stroke="var(--chart-1)" fill="url(#flow-core)" />
+                                  <Area type="monotone" dataKey="north" stackId="1" stroke="var(--chart-3)" fill="url(#flow-north)" />
+                                  <Area type="monotone" dataKey="east" stackId="1" stroke="var(--chart-4)" fill="url(#flow-east)" />
+                                </AreaChart>
+                              </ResponsiveContainer>
+                            </div>
+                          </div>
+                          <div className="panel-item">
+                            <div className="text-xs font-semibold text-muted">Travel Time Distribution (min)</div>
+                            <div className="mt-2" style={{ width: '100%', height: 140 }}>
+                              <ResponsiveContainer width="100%" height="100%">
+                                <RadarChart data={travelTimeSeries} outerRadius="70%">
+                                  <PolarGrid stroke="var(--app-border)" />
+                                  <PolarAngleAxis dataKey="name" tick={{ fontSize: 10 }} />
+                                  <PolarRadiusAxis angle={30} domain={[0, 50]} tick={{ fontSize: 9 }} />
+                                  <Tooltip />
+                                  <Radar
+                                    name="Median"
+                                    dataKey="median"
+                                    stroke="var(--chart-2)"
+                                    fill="var(--chart-2)"
+                                    fillOpacity={0.35}
+                                  />
+                                  <Radar
+                                    name="P90"
+                                    dataKey="p90"
+                                    stroke="var(--chart-5)"
+                                    fill="var(--chart-5)"
+                                    fillOpacity={0.2}
+                                  />
+                                </RadarChart>
+                              </ResponsiveContainer>
+                            </div>
+                          </div>
+                          <div className="panel-item">
+                            <div className="text-xs font-semibold text-muted">Delay vs Distance (min)</div>
+                            <div className="mt-2" style={{ width: '100%', height: 140 }}>
+                              <ResponsiveContainer width="100%" height="100%">
+                                <ScatterChart margin={{ top: 5, right: 5, left: 0, bottom: 0 }}>
+                                  <CartesianGrid stroke="var(--app-border)" strokeDasharray="3 3" />
+                                  <XAxis
+                                    type="number"
+                                    dataKey="distance"
+                                    name="Distance"
+                                    unit=" km"
+                                    tick={{ fontSize: 10 }}
+                                  />
+                                  <YAxis type="number" dataKey="delay" name="Delay" unit=" min" tick={{ fontSize: 10 }} width={32} />
+                                  <ZAxis type="number" dataKey="volume" range={[40, 220]} />
+                                  <Tooltip cursor={{ strokeDasharray: '3 3' }} />
+                                  <Scatter data={delayDistanceSeries} fill="var(--chart-2)" />
+                                </ScatterChart>
+                              </ResponsiveContainer>
+                            </div>
+                          </div>
+                        </>
+                      )}
                     </div>
                   </div>
                 )}

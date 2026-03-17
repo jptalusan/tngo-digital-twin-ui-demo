@@ -60,6 +60,10 @@ class Settings:
     )
     default_brt_speed_kmph: float = float(os.getenv("DEFAULT_BRT_SPEED_KMPH", "45"))
     heatmap_grid_size_mile: float = float(os.getenv("HEATMAP_GRID_SIZE_MILE", "1.0"))
+    moveod_output_path: str = os.getenv(
+        "MOVEOD_OUTPUT_PATH",
+        str(Path(__file__).resolve().parents[2] / "data"),
+    )
 
     def __post_init__(self) -> None:
         object.__setattr__(

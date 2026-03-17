@@ -34,7 +34,7 @@ uv run python scripts/init_db.py
 uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-Generate OpenAPI:
+Generate OpenAPI.json:
 
 ```bash
 uv run python scripts/generate_openapi.py
@@ -43,7 +43,7 @@ uv run python scripts/generate_openapi.py
 Load GTFS:
 
 ```bash
-uv run python scripts/load_gtfs.py --path /path/to/gtfs.zip
+uv run python scripts/load_gtfs.py --path ./scripts/data/gtfs/MERGED_gtfs.zip
 ```
 
 Load on-demand fleet: (optional)

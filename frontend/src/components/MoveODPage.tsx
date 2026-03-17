@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { MoveODMap, MoveODStateSelection } from './MoveODMap';
 import type { MoveODAnalysisSelection } from './MoveODAnalysisPage';
 import {
@@ -9,11 +9,13 @@ import {
   useCountiesList,
   useCountiesSearch,
   useCountyGeometry,
+  useGenerateDemand,
   useStatesGeometry,
   useStatesSearch,
   useSyntheticDemand
 } from '../hooks/useMoveOD';
 import { SidebarShell } from './SidebarShell';
+import { useAnalysisJobs } from '../state/analysisJobs';
 
 export type StateOption = {
   state_fips: string;
@@ -93,16 +95,25 @@ export function MoveODPage({ baseMapStyle = 'light', onAnalyze }: MoveODPageProp
 
   const [highlightedStateFips, setHighlightedStateFips] = useState<string | null>(null);
 
+  // Default to system's current date, timezone-aware
+  const getTodayWithTimezone = () => {
+    const now = new Date();
+    // Convert to local timezone ISO string (YYYY-MM-DD)
+    const tzOffset = now.getTimezoneOffset() * 60000;
+    const localISO = new Date(now.getTime() - tzOffset).toISOString().slice(0, 10);
+    // Return as Date object
+    return new Date(localISO);
+  };
+  const today = getTodayWithTimezone();
   const [dateRange, setDateRange] = useState<{ start: Date | null; end: Date | null }>({
-    start: null,
-    end: null
+    start: today,
+    end: today
   });
-  const [lodesYear, setLodesYear] = useState<number | ''>('');
-  const [tigerYear, setTigerYear] = useState<number | ''>('');
+  const [lodesYear, setLodesYear] = useState<number | ''>(2022);
+  const [tigerYear, setTigerYear] = useState<number | ''>(2024);
   const [inrixDataPath, setInrixDataPath] = useState('');
   const [inrixConversionPath, setInrixConversionPath] = useState('');
-  const [useGlobalBuildingsFootprint, setUseGlobalBuildingsFootprint] = useState(false);
-  const [outputPath, setOutputPath] = useState('');
+  const [useMsBuildings, setUseMsBuildings] = useState(true);
   const [showExistingDemand, setShowExistingDemand] = useState(false);
   const [demandVisibilityPercent, setDemandVisibilityPercent] = useState(100);
   const [showStatesLayer, setShowStatesLayer] = useState(true);
@@ -110,6 +121,29 @@ export function MoveODPage({ baseMapStyle = 'light', onAnalyze }: MoveODPageProp
   const [showGeometryFill, setShowGeometryFill] = useState(true);
 
   const [errorBanner, setErrorBanner] = useState<string | null>(null);
+
+  const { state: generateState, generate, reset: resetGenerate } = useGenerateDemand();
+  const { startJob } = useAnalysisJobs();
+
+  const registeredJobIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    const { jobId, status } = generateState;
+    if (jobId && jobId !== registeredJobIdRef.current && (status === 'queued' || status === 'running')) {
+      registeredJobIdRef.current = jobId;
+      const countyFips = selectedCounty?.county_fips ?? selectedCounty?.geoid.slice(2);
+      const selection =
+        selectedState && selectedCounty && countyFips
+          ? {
+              state_fips: selectedState.state_fips,
+              state_name: selectedState.state_name,
+              county_geoid: selectedCounty.geoid,
+              county_name: selectedCounty.name,
+              county_fips: countyFips
+            }
+          : undefined;
+      startJob(jobId, selection, 'generate');
+    }
+  }, [generateState, selectedState, selectedCounty, startJob]);
 
   const [stateQueryDebounced, setStateQueryDebounced] = useState('');
   const [countyQueryDebounced, setCountyQueryDebounced] = useState('');
@@ -291,28 +325,35 @@ export function MoveODPage({ baseMapStyle = 'light', onAnalyze }: MoveODPageProp
     (!dateRange.start && !dateRange.end) ||
     (dateRange.start !== null && dateRange.end !== null);
 
+  const isGenerating =
+    generateState.status === 'submitting' ||
+    generateState.status === 'queued' ||
+    generateState.status === 'running';
+
   const generateEnabled =
     !!selectedState &&
     !!selectedCounty &&
-    !!outputPath &&
     dateRange.start !== null &&
-    dateRange.end !== null;
+    dateRange.end !== null &&
+    !isGenerating;
 
   const handleGenerate = () => {
-    if (!selectedState || !selectedCounty) return;
+    if (!selectedState || !selectedCounty || !dateRange.start || !dateRange.end) return;
+    const countyFips =
+      selectedCounty.county_fips ?? selectedCounty.geoid.slice(2);
     const payload = {
       state_fips: selectedState.state_fips,
-      county_geoid: selectedCounty.geoid,
-      date_start: dateRange.start?.toISOString() ?? null,
-      date_end: dateRange.end?.toISOString() ?? null,
-      lodes_year: lodesYear || null,
-      tiger_year: tigerYear || null,
-      inrix_data_path: inrixDataPath,
-      inrix_conversion_path: inrixConversionPath,
-      use_global_buildings_footprint: useGlobalBuildingsFootprint,
-      output_path: outputPath
+      county_fips: countyFips,
+      start_date: formatDateInput(dateRange.start),
+      end_date: formatDateInput(dateRange.end),
+      lodes_year: lodesYear !== '' ? lodesYear : undefined,
+      tiger_year: tigerYear !== '' ? tigerYear : undefined,
+      use_ms_buildings: useMsBuildings,
+      inrix_path: inrixDataPath || null,
+      inrix_conversion_path: inrixConversionPath || null,
     };
-    console.log('[moveod] generate payload', payload);
+    console.log('[MoveOD] POST /api/moveod/generate', payload);
+    generate(payload);
   };
 
   const showCountyLoading = loadingCountySearch || loadingCountyList;
@@ -416,13 +457,48 @@ export function MoveODPage({ baseMapStyle = 'light', onAnalyze }: MoveODPageProp
               disabled={!generateEnabled}
               className="btn btn-primary w-full"
             >
-              Generate
+              {isGenerating ? (
+                <span className="flex items-center justify-center gap-2">
+                  <span className="inline-flex h-3 w-3 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                  {generateState.status === 'submitting' ? 'Submitting…' : 'Generating…'}
+                </span>
+              ) : (
+                'Generate'
+              )}
             </button>
-            <div className="text-xs text-muted">
-              {selectedState && selectedCounty
-                ? 'Ready to submit once required fields are filled.'
-                : 'Select a state and county to enable generation.'}
-            </div>
+
+            {/* status feedback */}
+            {generateState.status === 'running' && generateState.step && (
+              <div className="control-hint truncate">
+                Step: {generateState.step.replace(/_/g, ' ')}
+              </div>
+            )}
+            {generateState.status === 'done' && (
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-success">Generation complete.</span>
+                <button type="button" onClick={resetGenerate} className="btn btn-ghost text-xs">
+                  Dismiss
+                </button>
+              </div>
+            )}
+            {(generateState.status === 'error' || generateState.status === 'conflict') && (
+              <div className="flex items-start justify-between gap-2">
+                <span className="text-xs text-error">
+                  {generateState.message ?? 'An error occurred.'}
+                </span>
+                <button type="button" onClick={resetGenerate} className="btn btn-ghost text-xs shrink-0">
+                  Dismiss
+                </button>
+              </div>
+            )}
+
+            {!isGenerating && generateState.status === 'idle' && (
+              <div className="text-xs text-muted">
+                {selectedState && selectedCounty
+                  ? 'Ready to submit once required fields are filled.'
+                  : 'Select a state and county to enable generation.'}
+              </div>
+            )}
           </div>
         }
       >
@@ -642,7 +718,7 @@ export function MoveODPage({ baseMapStyle = 'light', onAnalyze }: MoveODPageProp
         <div className="panel space-y-3">
           <div className="panel-title">Paths</div>
           <div className="control">
-            <label className="control-label">INRIX Data Path</label>
+            <label className="control-label">INRIX Data Path (optional)</label>
             <input
               value={inrixDataPath}
               onChange={(e) => setInrixDataPath(e.target.value)}
@@ -651,7 +727,7 @@ export function MoveODPage({ baseMapStyle = 'light', onAnalyze }: MoveODPageProp
             />
           </div>
           <div className="control">
-            <label className="control-label">INRIX Conversion Path</label>
+            <label className="control-label">INRIX Conversion Path (optional)</label>
             <input
               value={inrixConversionPath}
               onChange={(e) => setInrixConversionPath(e.target.value)}
@@ -663,8 +739,8 @@ export function MoveODPage({ baseMapStyle = 'light', onAnalyze }: MoveODPageProp
             <span>Use Global Buildings Footprint</span>
             <input
               type="checkbox"
-              checked={useGlobalBuildingsFootprint}
-              onChange={(e) => setUseGlobalBuildingsFootprint(e.target.checked)}
+              checked={useMsBuildings}
+              onChange={(e) => setUseMsBuildings(e.target.checked)}
               className="h-4 w-4"
             />
           </label>
@@ -718,15 +794,6 @@ export function MoveODPage({ baseMapStyle = 'light', onAnalyze }: MoveODPageProp
           )}
         </div>
 
-        <div className="panel space-y-2">
-          <div className="panel-title">Output</div>
-          <input
-            value={outputPath}
-            onChange={(e) => setOutputPath(e.target.value)}
-            placeholder="/outputs/moveod"
-            className="control-input"
-          />
-        </div>
       </SidebarShell>
 
       <div className="map-panel">

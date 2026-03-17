@@ -384,6 +384,156 @@ export function useCountyGeometry(geoid: string | null) {
   return { data, loading, error };
 }
 
+export type GenerateDemandRequest = {
+  state_fips: string;
+  county_fips: string;
+  start_date: string;   // "YYYY-MM-DD"
+  end_date: string;     // "YYYY-MM-DD"
+  lodes_year?: number;
+  tiger_year?: number;
+  use_ms_buildings?: boolean;
+  od_option?: string;
+  inrix_path?: string | null;
+  inrix_conversion_path?: string | null;
+};
+
+export type GenerateDemandStatus =
+  | 'idle'
+  | 'submitting'
+  | 'queued'
+  | 'running'
+  | 'done'
+  | 'error'
+  | 'conflict';
+
+export type GenerateJobState = {
+  status: GenerateDemandStatus;
+  jobId: string | null;
+  message: string | null;
+  step: string | null;  // e.g. "downloading_data", "routing", etc.
+};
+
+const JOB_POLL_INTERVAL_MS = 3000;
+
+export function useGenerateDemand() {
+  const [state, setState] = useState<GenerateJobState>({
+    status: 'idle',
+    jobId: null,
+    message: null,
+    step: null,
+  });
+
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const consecutiveErrorsRef = useRef(0);
+  const MAX_CONSECUTIVE_ERRORS = 3;
+
+  const stopPolling = () => {
+    if (pollRef.current !== null) {
+      clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
+  };
+
+  const pollJobStatus = (jobId: string) => {
+    stopPolling();
+    consecutiveErrorsRef.current = 0;
+    pollRef.current = setInterval(async () => {
+      try {
+        const response: any = await apiClient.get_analysis_status_api_moveod_analysis_status_get(
+          { queries: { job_id: jobId } }
+        );
+        consecutiveErrorsRef.current = 0;
+        const status: string = response?.status ?? '';
+        const message: string = response?.message ?? '';
+        const step = message.startsWith('running:') ? message.slice('running:'.length) : null;
+
+        if (status === 'done') {
+          stopPolling();
+          setState({ status: 'done', jobId, message: 'Generation complete.', step: null });
+        } else if (status === 'error') {
+          stopPolling();
+          setState({ status: 'error', jobId, message, step: null });
+        } else {
+          setState((prev) => ({ ...prev, status: 'running', step, message }));
+        }
+      } catch {
+        consecutiveErrorsRef.current += 1;
+        if (consecutiveErrorsRef.current >= MAX_CONSECUTIVE_ERRORS) {
+          stopPolling();
+          setState((prev) => ({
+            ...prev,
+            status: 'error',
+            message: `Could not reach job status after ${MAX_CONSECUTIVE_ERRORS} attempts — job may no longer exist`,
+          }));
+        }
+        // else: transient network hiccup — keep polling
+      }
+    }, JOB_POLL_INTERVAL_MS);
+  };
+
+  const generate = async (request: GenerateDemandRequest) => {
+    stopPolling();
+    consecutiveErrorsRef.current = 0;
+    setState({ status: 'submitting', jobId: null, message: null, step: null });
+
+    try {
+      const res = await fetch(`${apiBase}/api/moveod/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(request),
+      });
+
+      if (res.status === 409) {
+        const body = await res.json().catch(() => ({}));
+        setState({
+          status: 'conflict',
+          jobId: null,
+          message: body?.detail ?? 'Demand already exists for this area.',
+          step: null,
+        });
+        return;
+      }
+
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        setState({
+          status: 'error',
+          jobId: null,
+          message: body?.detail ?? `Request failed (${res.status})`,
+          step: null,
+        });
+        return;
+      }
+
+      const response = await res.json();
+      const jobId: string = response?.job_id ?? '';
+      const status: string = response?.status ?? '';
+
+      if (status === 'queued' || status === 'running') {
+        setState({ status: 'queued', jobId, message: response?.message ?? null, step: null });
+        pollJobStatus(jobId);
+      } else if (status === 'done') {
+        setState({ status: 'done', jobId, message: 'Generation complete.', step: null });
+      } else {
+        setState({ status: 'error', jobId: null, message: response?.message ?? 'Unexpected response', step: null });
+      }
+    } catch (err: any) {
+      setState({ status: 'error', jobId: null, message: err?.message ?? 'Request failed', step: null });
+    }
+  };
+
+  const reset = () => {
+    stopPolling();
+    consecutiveErrorsRef.current = 0;
+    setState({ status: 'idle', jobId: null, message: null, step: null });
+  };
+
+  // Clean up on unmount
+  useEffect(() => () => stopPolling(), []);
+
+  return { state, generate, reset };
+}
+
 export function useSyntheticDemand(
   stateFips: string | null,
   countyFips: string | null,

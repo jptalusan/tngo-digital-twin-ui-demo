@@ -12,8 +12,11 @@ import type { MoveODAnalysisSelection } from '../components/MoveODAnalysisPage';
 
 type AnalysisJobStatus = 'queued' | 'running' | 'done' | 'error' | 'unknown';
 
+export type AnalysisJobType = 'analyze' | 'generate';
+
 export type AnalysisJob = {
   jobId: string;
+  jobType: AnalysisJobType;
   status: AnalysisJobStatus;
   message?: string;
   unread: boolean;
@@ -24,9 +27,10 @@ export type AnalysisJob = {
 
 type AnalysisJobsContextValue = {
   jobs: AnalysisJob[];
-  startJob: (jobId: string, selection?: MoveODAnalysisSelection) => void;
+  startJob: (jobId: string, selection?: MoveODAnalysisSelection, jobType?: AnalysisJobType) => void;
   markRead: (jobId: string) => void;
   markAllRead: () => void;
+  dismissJob: (jobId: string) => void;
 };
 
 const AnalysisJobsContext = createContext<AnalysisJobsContextValue | null>(null);
@@ -37,14 +41,39 @@ const apiBase =
 
 const getNow = () => Date.now();
 
+const STORAGE_KEY = 'moveod_analysis_jobs_v2';
+
+const loadPersistedJobs = (): AnalysisJob[] => {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed as AnalysisJob[];
+  } catch {
+    return [];
+  }
+};
+
+const persistJobs = (jobs: AnalysisJob[]) => {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(jobs));
+  } catch {
+    // storage quota exceeded — silently ignore
+  }
+};
+
 export function AnalysisJobsProvider({ children }: { children: ReactNode }) {
-  const [jobs, setJobs] = useState<AnalysisJob[]>([]);
+  const [jobs, setJobs] = useState<AnalysisJob[]>(() => loadPersistedJobs());
   const jobsRef = useRef<AnalysisJob[]>([]);
   const eventSourcesRef = useRef<Map<string, EventSource>>(new Map());
   const pollingRef = useRef<Map<string, number>>(new Map());
+  const notFoundCountRef = useRef<Map<string, number>>(new Map());
+  const NOT_FOUND_LIMIT = 3;
 
   useEffect(() => {
     jobsRef.current = jobs;
+    persistJobs(jobs);
   }, [jobs]);
 
   const upsertJob = useCallback((jobId: string, partial: Partial<AnalysisJob>) => {
@@ -55,6 +84,7 @@ export function AnalysisJobsProvider({ children }: { children: ReactNode }) {
         const createdAt = partial.createdAt ?? now;
         const next: AnalysisJob = {
           jobId,
+          jobType: partial.jobType ?? 'analyze',
           status: partial.status ?? 'queued',
           message: partial.message,
           unread: partial.unread ?? false,
@@ -102,7 +132,14 @@ export function AnalysisJobsProvider({ children }: { children: ReactNode }) {
 
   const handleStatusPayload = useCallback(
     (jobId: string, payload: any) => {
-      const status = (payload?.status ?? payload?.state ?? 'unknown') as AnalysisJobStatus;
+      const rawStatus = payload?.status ?? payload?.state ?? 'unknown';
+      // Server reports job not found — treat as error immediately
+      if (rawStatus === 'not_found') {
+        upsertJob(jobId, { status: 'error', message: 'Job not found on server', unread: true, updatedAt: getNow() });
+        finalizeJob(jobId);
+        return;
+      }
+      const status = rawStatus as AnalysisJobStatus;
       const message = typeof payload?.message === 'string' ? payload.message : undefined;
       const done = status === 'done' || status === 'error';
       upsertJob(jobId, {
@@ -126,9 +163,21 @@ export function AnalysisJobsProvider({ children }: { children: ReactNode }) {
       const handle = window.setInterval(async () => {
         try {
           const response = await fetch(`${apiBase}/api/moveod/analysis/status?job_id=${encodeURIComponent(jobId)}`);
+          if (response.status === 404) {
+            const count = (notFoundCountRef.current.get(jobId) ?? 0) + 1;
+            notFoundCountRef.current.set(jobId, count);
+            console.log('[MoveOD][polling] 404', { jobId, count, limit: NOT_FOUND_LIMIT });
+            if (count >= NOT_FOUND_LIMIT) {
+              upsertJob(jobId, { status: 'error', message: 'Job not found on server', unread: true, updatedAt: getNow() });
+              notFoundCountRef.current.delete(jobId);
+              finalizeJob(jobId);
+            }
+            return;
+          }
           if (!response.ok) {
             throw new Error(await response.text());
           }
+          notFoundCountRef.current.delete(jobId);
           const payload = await response.json();
           handleStatusPayload(jobId, payload);
         } catch (err: any) {
@@ -195,8 +244,9 @@ export function AnalysisJobsProvider({ children }: { children: ReactNode }) {
   );
 
   const startJob = useCallback(
-    (jobId: string, selection?: MoveODAnalysisSelection) => {
+    (jobId: string, selection?: MoveODAnalysisSelection, jobType: AnalysisJobType = 'analyze') => {
       upsertJob(jobId, {
+        jobType,
         status: 'queued',
         message: 'Queued',
         unread: false,
@@ -220,6 +270,22 @@ export function AnalysisJobsProvider({ children }: { children: ReactNode }) {
     );
   }, []);
 
+  const dismissJob = useCallback((jobId: string) => {
+    finalizeJob(jobId);
+    setJobs((prev) => prev.filter((job) => job.jobId !== jobId));
+  }, [finalizeJob]);
+
+  // On mount, resume live tracking for any jobs that were still in-flight
+  // when the page was previously closed.
+  useEffect(() => {
+    jobsRef.current.forEach((job: AnalysisJob) => {
+      if (job.status !== 'done' && job.status !== 'error') {
+        startEventSource(job.jobId);
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // intentionally runs once on mount only
+
   useEffect(() => {
     return () => {
       eventSourcesRef.current.forEach((source) => source.close());
@@ -234,9 +300,10 @@ export function AnalysisJobsProvider({ children }: { children: ReactNode }) {
       jobs,
       startJob,
       markRead,
-      markAllRead
+      markAllRead,
+      dismissJob
     }),
-    [jobs, markAllRead, markRead, startJob]
+    [jobs, markAllRead, markRead, startJob, dismissJob]
   );
 
   return <AnalysisJobsContext.Provider value={value}>{children}</AnalysisJobsContext.Provider>;

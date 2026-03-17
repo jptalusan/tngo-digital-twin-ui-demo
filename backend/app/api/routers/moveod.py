@@ -2,15 +2,18 @@ from __future__ import annotations
 
 import asyncio
 import json
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Response
+from pathlib import Path
+from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException, Query, Response
 from fastapi.responses import StreamingResponse
 from app.logging.config import get_logger
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 import uuid
 
+from app.core.config import settings
 from app.crud import moveod as moveod_crud
 from app.services import moveod_analysis
+from app.services import moveod_generator
 from app.db import get_session, SessionLocal
 from app.models.moveod import StateFips
 from app.schemas import moveod as schemas
@@ -225,13 +228,16 @@ def analyze_moveod(
         try:
             logger.info("MoveOD analysis started job_id=%s state_fips=%s county_fips=%s", job_id_value, sf, cf)
             moveod_crud.update_job_status(bg_session, job_id_value, "running")
+
+            def _progress(step: str) -> None:
+                logger.debug("MoveOD analysis progress job_id=%s step=%s", job_id_value, step)
+                moveod_crud.update_job_status(bg_session, job_id_value, "running", f"running:{step}")
+
             moveod_analysis.analyze_synthetic_demand(
                 bg_session,
                 sf,
                 cf,
-                progress_cb=lambda step: moveod_crud.update_job_status(
-                    bg_session, job_id_value, "running", f"running:{step}"
-                ),
+                progress_cb=_progress,
             )
             moveod_crud.update_job_status(bg_session, job_id_value, "done")
             logger.info("MoveOD analysis completed job_id=%s state_fips=%s county_fips=%s", job_id_value, sf, cf)
@@ -476,3 +482,93 @@ def get_available_demand_areas_named(
     items = moveod_crud.list_available_demand_areas_named(session)
     message = "ok" if items else "no demand data"
     return schemas.SearchListResponse(items=items, message=message)
+
+
+@router.post(
+    "/moveod/generate",
+    response_model=schemas.GenerateDemandResponse,
+    summary="Generate synthetic OD demand for a state/county",
+    description=(
+        "Starts a background job that runs the full MoveOD pipeline "
+        "(download → LODES → OSM → routing → ILP calibration → DB insert). "
+        "Returns 409 if demand already exists for the area. "
+        "Returns 202 with a job_id to poll for progress."
+    ),
+)
+def generate_demand(
+    background_tasks: BackgroundTasks,
+    response: Response,
+    request: schemas.GenerateDemandRequest = Body(...),
+    session: Session = Depends(get_session),
+) -> schemas.GenerateDemandResponse:
+    state_fips = request.state_fips
+    county_fips = request.county_fips
+
+    # 409 if demand already exists
+    if moveod_crud.has_synthetic_demand(session, state_fips, county_fips):
+        raise HTTPException(
+            status_code=409,
+            detail="demand already exists for this area — delete it first to regenerate",
+        )
+
+    # 202 if a generation job is already running
+    active_job = moveod_crud.get_active_job(
+        session, state_fips, county_fips, job_type="generate"
+    )
+    if active_job:
+        response.status_code = 202
+        return schemas.GenerateDemandResponse(
+            job_id=active_job.job_id,
+            status=active_job.status,
+            message="generation job already running",
+        )
+
+    job_id = str(uuid.uuid4())
+    moveod_crud.create_job(session, job_id, state_fips, county_fips, job_type="generate")
+
+    def _run_generation(jid: str, req: schemas.GenerateDemandRequest) -> None:
+        job_output_path = str(Path(settings.moveod_output_path) / jid)
+        bg_session = SessionLocal()
+        try:
+            logger.info(
+                "MoveOD generation started job_id=%s state_fips=%s county_fips=%s date_range=%s→%s od_option=%s output=%s",
+                jid, req.state_fips, req.county_fips, req.start_date, req.end_date, req.od_option, job_output_path,
+            )
+            moveod_crud.update_job_status(bg_session, jid, "running")
+
+            def _progress(step: str) -> None:
+                logger.debug("MoveOD generation progress job_id=%s step=%s", jid, step)
+                moveod_crud.update_job_status(bg_session, jid, "running", f"running:{step}")
+
+            n = moveod_generator.generate_synthetic_demand(
+                bg_session,
+                req,
+                job_output_path,
+                progress_cb=_progress,
+            )
+            moveod_crud.update_job_status(bg_session, jid, "done")
+            logger.info(
+                "MoveOD generation completed job_id=%s state_fips=%s county_fips=%s rows=%s output=%s",
+                jid, req.state_fips, req.county_fips, n, job_output_path,
+            )
+        except Exception as exc:  # noqa: BLE001
+            bg_session.rollback()
+            moveod_crud.update_job_status(
+                bg_session, jid, "error",
+                f"{exc} — output dir: {job_output_path}",
+            )
+            logger.exception(
+                "MoveOD generation failed job_id=%s state_fips=%s county_fips=%s",
+                jid, req.state_fips, req.county_fips,
+            )
+        finally:
+            bg_session.close()
+
+    background_tasks.add_task(_run_generation, job_id, request)
+
+    response.status_code = 202
+    return schemas.GenerateDemandResponse(
+        job_id=job_id,
+        status="queued",
+        message="demand generation queued",
+    )

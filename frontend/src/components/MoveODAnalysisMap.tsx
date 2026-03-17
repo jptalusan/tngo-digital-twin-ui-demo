@@ -48,10 +48,18 @@ export function MoveODAnalysisMap({
       maxZoom: 19,
       attribution: '© OpenStreetMap contributors © CARTO'
     });
+    const satelliteLayer = L.tileLayer(
+      'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+      {
+        maxZoom: 19,
+        attribution: '© Esri, Maxar, Earthstar Geographics'
+      }
+    );
     baseLayersRef.current = {
       'OSM Standard': standardLayer,
       'OSM Humanitarian': hotLayer,
-      'Light (No Labels)': lightLayer
+      'Light (No Labels)': lightLayer,
+      Satellite: satelliteLayer
     };
     const initialLayer = baseMapStyle === 'light' ? lightLayer : standardLayer;
     initialLayer.addTo(map);
@@ -66,7 +74,7 @@ export function MoveODAnalysisMap({
           'Origin Points': originGroupRef.current,
           'Destination Points': destinationGroupRef.current
         },
-        { position: 'topright', collapsed: true }
+        { position: 'topleft', collapsed: true }
       )
       .addTo(map);
     mapRef.current = map;

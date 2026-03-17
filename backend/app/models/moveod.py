@@ -193,12 +193,15 @@ class AnalysisJob(Base):
     __tablename__ = "moveod_analysis_jobs"
     __table_args__ = (
         Index("idx_moveod_analysis_jobs_state_county", "state_fips", "county_fips"),
+        Index("idx_moveod_analysis_jobs_state_county_type", "state_fips", "county_fips", "job_type"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     job_id: Mapped[str] = mapped_column(String(36), unique=True, index=True)
     state_fips: Mapped[str] = mapped_column(String(2), index=True)
     county_fips: Mapped[str] = mapped_column(String(3), index=True)
+    job_type: Mapped[str] = mapped_column(String(16), index=True, server_default="analyze")
+    # Values: "analyze" | "generate"
     status: Mapped[str] = mapped_column(String, index=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()

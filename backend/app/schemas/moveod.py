@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from typing import Any, Optional
+from datetime import date
+from typing import Any, Literal, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 
 # ---------------------------------------------------------------------------
@@ -148,3 +149,56 @@ class AvailableDemandArea(BaseModel):
     state_fips: str
     state_name: str
     counties: list[AvailableCounty]
+
+
+# ---------------------------------------------------------------------------
+# Demand generation
+# ---------------------------------------------------------------------------
+
+
+class GenerateDemandRequest(BaseModel):
+    # --- required ---
+    state_fips: str   # "47" – 2-char zero-padded
+    county_fips: str  # "157" – 3-char zero-padded
+
+    # --- date range ---
+    start_date: date
+    end_date: date
+
+    # --- data source options ---
+    lodes_year: int = 2022
+    tiger_year: int = 2024
+    use_ms_buildings: bool = True
+    od_option: Literal[
+        "Origin and Destination in same County",
+        "Only Origin in County",
+        "Only Destination in County",
+    ] = "Origin and Destination in same County"
+
+    # --- optional auxiliary inputs ---
+    inrix_path: Optional[str] = None
+    inrix_conversion_path: Optional[str] = None
+
+    @field_validator("state_fips")
+    @classmethod
+    def _pad_state(cls, v: str) -> str:
+        return v.strip().zfill(2)
+
+    @field_validator("county_fips")
+    @classmethod
+    def _pad_county(cls, v: str) -> str:
+        return v.strip().zfill(3)
+
+    @field_validator("end_date")
+    @classmethod
+    def _end_after_start(cls, v: date, info: Any) -> date:
+        start = info.data.get("start_date")
+        if start and v < start:
+            raise ValueError("end_date must be >= start_date")
+        return v
+
+
+class GenerateDemandResponse(BaseModel):
+    job_id: str
+    status: str   # "queued" | "running" | "done" | "error" | "already_running"
+    message: str

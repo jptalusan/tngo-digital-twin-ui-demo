@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Bell } from 'lucide-react';
+import { Bell, X } from 'lucide-react';
 import { useAnalysisJobs } from '../state/analysisJobs';
 import type { AnalysisJob } from '../state/analysisJobs';
 
@@ -22,7 +22,7 @@ const formatElapsed = (ms: number) => {
 };
 
 export function AnalysisJobNotifications({ onNavigate }: AnalysisJobNotificationsProps) {
-  const { jobs, markRead, markAllRead } = useAnalysisJobs();
+  const { jobs, markRead, markAllRead, dismissJob } = useAnalysisJobs();
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
@@ -68,7 +68,7 @@ export function AnalysisJobNotifications({ onNavigate }: AnalysisJobNotification
       {open && (
         <div className="absolute right-0 z-[2200] mt-2 w-96 floating-card">
           <div className="flex items-center justify-between px-2 py-2 text-xs font-semibold uppercase tracking-wide text-muted">
-            <span>Analysis Jobs</span>
+            <span>Jobs</span>
             {unread && (
               <button
                 type="button"
@@ -84,34 +84,46 @@ export function AnalysisJobNotifications({ onNavigate }: AnalysisJobNotification
               <div className="px-3 py-3 text-sm text-muted">No jobs yet.</div>
             ) : (
               recentJobs.map((job) => (
-                <button
-                  key={job.jobId}
-                  type="button"
-                  onClick={() => handleJobClick(job)}
-                  className="w-full border-t border-default px-3 py-2 text-left list-row"
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-semibold">
-                      {job.selection
-                        ? `${job.selection.state_name ?? job.selection.state_fips} · ${
-                            job.selection.county_name ?? job.selection.county_fips
-                          }`
-                        : job.jobId}
-                    </span>
-                    <span className="tag">
-                      {job.status}
-                    </span>
-                  </div>
-                  <div className="mt-1 text-xs text-muted">
-                    {job.message ?? 'No message'}
-                  </div>
-                  <div className="mt-1 text-xs text-muted">
-                    {formatTime(job.createdAt)}
-                    {(job.status === 'done' || job.status === 'error') && (
-                      <span>{` · ${formatElapsed(job.updatedAt - job.createdAt)}`}</span>
-                    )}
-                  </div>
-                </button>
+                <div key={job.jobId} className="flex items-stretch border-t border-default list-row">
+                  {/* main clickable area */}
+                  <button
+                    type="button"
+                    onClick={() => handleJobClick(job)}
+                    className="flex-1 min-w-0 px-3 py-2 text-left"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-sm font-semibold truncate">
+                        {job.selection
+                          ? `${job.selection.state_name ?? job.selection.state_fips} · ${
+                              job.selection.county_name ?? job.selection.county_fips
+                            }`
+                          : job.jobId}
+                      </span>
+                      <div className="flex shrink-0 items-center gap-1">
+                        <span className="tag">{job.jobType === 'generate' ? 'Generate' : 'Analyze'}</span>
+                        <span className="tag">{job.status}</span>
+                      </div>
+                    </div>
+                    <div className="mt-1 text-xs text-muted truncate">
+                      {job.message ?? 'No message'}
+                    </div>
+                    <div className="mt-1 text-xs text-muted">
+                      {formatTime(job.createdAt)}
+                      {(job.status === 'done' || job.status === 'error') && (
+                        <span>{` · ${formatElapsed(job.updatedAt - job.createdAt)}`}</span>
+                      )}
+                    </div>
+                  </button>
+                  {/* dismiss button — vertically centered, right edge */}
+                  <button
+                    type="button"
+                    aria-label="Dismiss job"
+                    onClick={() => dismissJob(job.jobId)}
+                    className="flex shrink-0 items-center justify-center w-8 text-muted hover:text-default border-l border-default"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
               ))
             )}
           </div>

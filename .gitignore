@@ -99,3 +99,5 @@ backend/scripts/data/**
 *.csv
 *.html
 *.json
+
+backend/data/**

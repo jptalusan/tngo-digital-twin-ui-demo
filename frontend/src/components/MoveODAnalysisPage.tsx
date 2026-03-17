@@ -350,7 +350,7 @@ export function MoveODAnalysisPage({ selection, baseMapStyle = 'light' }: MoveOD
         setError(typeof err?.message === 'string' ? err.message : 'Failed to load areas');
       });
     return () => controller.abort();
-  }, []);
+  }, [selection]);
 
   useEffect(() => {
     if (!selection) return;
